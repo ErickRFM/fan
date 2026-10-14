@@ -31,7 +31,7 @@ internal sealed class MainForm : Form
     private readonly Sparkline _rpmChart = new() { Unit = "RPM", Height = 120 };
     private readonly List<(TrackBar Slider, Label Rpm, Label Percent)> _rows = new();
     private readonly FlowLayoutPanel _fanPanel;
-    private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _providerLine, _temperature, _lastUpdate;
+    private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _providerLine, _temperature, _lastUpdate, _conflictLine;
     private readonly TextBox _diagnostic;
     private readonly Button _hundred, _eighty, _apply, _automatic;
     private readonly Button _whisper, _standard, _performance;
@@ -98,8 +98,11 @@ internal sealed class MainForm : Form
         _watchdogState = Label("Watchdog: inactivo", 10, Muted);
         _temperature = Label("CPU: pendiente", 13, Accent, FontStyle.Bold);
         _lastUpdate = Label("Última lectura: --:--:--", 9, Muted);
+        _conflictLine = Label(string.Empty, 9, Warning);
+        _conflictLine.Visible = false;
         foreach (var control in new Control[] { _lastUpdate, _watchdogState, _mode, _temperature, _providerLine, _fanCountLine, _biosLine, _modelLine })
             card.Controls.Add(control);
+        card.Controls.Add(_conflictLine);
         card.Controls.Add(Label("PWM pedido NO equivale a RPM medidas", 9, Warning));
         right.Controls.Add(card, 0, 0);
 
@@ -241,6 +244,14 @@ internal sealed class MainForm : Form
             _modelLine.Text = "Modelo: " + model;
             _biosLine.Text = "BIOS: " + AsusHardware.BiosVersion();
             Log("Detectado: " + model);
+
+            var conflicts = FanToolConflictDetector.Running();
+            if (conflicts.Count > 0)
+            {
+                Log("AVISO: " + ControlConflicts.Advisory(conflicts));
+                _conflictLine.Text = "Herramienta ASUS activa: " + string.Join(", ", conflicts);
+                _conflictLine.Visible = true;
+            }
 
             // Always create the read-only ACPI/thermal telemetry path; it works when the
             // HealthyTable/WinIO route is degraded.

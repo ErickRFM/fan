@@ -17,6 +17,11 @@
 - **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
 - **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
 
+## 0.4.3 — Detección de herramientas ASUS en conflicto
+- **Core:** `ControlConflicts` reconoce utilidades conocidas (MyASUS, Armoury Crate, G-Helper, ASUS Optimization) sin enumerar procesos reales.
+- **Win:** `FanToolConflictDetector` enumera procesos y expone las que pueden competir por el control de ventiladores; el dashboard muestra un aviso y `--hardware-diagnose` lo registra.
+- **Pruebas:** 88 comprobaciones (antes 79).
+
 ## 0.4.2 — Historial de telemetría y mini-gráficas
 - **`TelemetryHistory` en Core:** búfer circular acotado (180 muestras) con valores legibles por punto; testeable sin hardware.
 - **UI:** dos mini-gráficas (`Sparkline`) de temperatura CPU y RPM, con autoescala, alimentadas desde el historial en cada sondeo (sirven tanto la ruta HealthyTable como la ATKACPI).
