@@ -61,6 +61,19 @@ Check(newest?.Path == @"C:\new\AsusWinIO64.dll", "newest dll selected");
 Check(FanPolicy.SelectNewestDll(Array.Empty<DllCandidate>()) is null, "empty dll set");
 Check(FanPolicy.SelectNewestDll(new[] { new DllCandidate("", new Version(9, 9)) }) is null, "blank dll path ignored");
 
+// ---- Policy: ATKACPI decode ----
+Check(FanPolicy.AcpiFanRpm(53) == 5300, "acpi fan raw 53 -> 5300");
+Check(FanPolicy.AcpiFanRpm(0) == 0, "acpi fan zero rpm");
+Check(FanPolicy.AcpiFanRpm(120) == 12000, "acpi fan max raw");
+Check(FanPolicy.AcpiFanRpm(121) == -1, "acpi fan over max invalid");
+Check(FanPolicy.AcpiFanRpm(-65536) == -1, "acpi fan empty status invalid");
+Check(FanPolicy.AcpiTemperature(45) == 45, "acpi temp valid");
+Check(FanPolicy.AcpiTemperature(0) == 0, "acpi temp zero valid");
+Check(FanPolicy.AcpiTemperature(-65536) == -1, "acpi temp unsupported invalid");
+Check(FanPolicy.AcpiTemperature(200) == -1, "acpi temp over max invalid");
+Check(FanPolicy.VivoBookWireMode(1) == 2 && FanPolicy.VivoBookWireMode(2) == 1, "vivobook turbo/silent swap");
+Check(FanPolicy.VivoBookWireMode(0) == 0, "vivobook balanced unchanged");
+
 // ---- Session: manual state machine with a mock controller ----
 var time = new ManualTime();
 var backend = new FakeBackend(2, new[] { 1000, 1000 });

@@ -7,6 +7,11 @@ public static class FanPolicy
     public const int MaximumPercent = 100;
     public const int MaxFans = 6;
 
+    /// <summary>Highest valid ATKACPI fan raw value; the raw unit is 100 RPM.</summary>
+    public const int MaxAcpiFanRaw = 120;
+    /// <summary>Highest plausible ATKACPI temperature in degrees Celsius.</summary>
+    public const int MaxAcpiTemperature = 110;
+
     /// <summary>Confirmed-only model guard. Never widen without physical validation.</summary>
     public static bool SupportedModel(string? model) =>
         !string.IsNullOrWhiteSpace(model) &&
@@ -47,6 +52,27 @@ public static class FanPolicy
             if (rpms[i] <= 0) return true;
         return false;
     }
+
+    /// <summary>
+    /// Decodes an ATKACPI fan value returned by DeviceGet. The raw unit is 100 RPM; values
+    /// above <see cref="MaxAcpiFanRaw"/> or an empty negative status are treated as invalid.
+    /// </summary>
+    public static int AcpiFanRpm(int raw)
+    {
+        int value = raw & 0xFFFF;
+        if (value > MaxAcpiFanRaw || (value == 0 && raw < 0)) return -1;
+        return value * 100;
+    }
+
+    /// <summary>Decodes an ATKACPI temperature; out-of-range values are treated as unavailable.</summary>
+    public static int AcpiTemperature(int raw) =>
+        raw is >= 0 and <= MaxAcpiTemperature ? raw : -1;
+
+    /// <summary>
+    /// ATKACPI VivoBook encodes Turbo/Silent inverted relative to the internal performance
+    /// bases, so writing a mode requires swapping 1 and 2.
+    /// </summary>
+    public static int VivoBookWireMode(int baseMode) => baseMode switch { 1 => 2, 2 => 1, _ => baseMode };
 
     /// <summary>Selects the highest-version OEM library; stale DriverStore folders must never win.</summary>
     public static DllCandidate? SelectNewestDll(IEnumerable<DllCandidate> candidates)

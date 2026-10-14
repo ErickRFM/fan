@@ -2,7 +2,7 @@
 
 **Aplicación de escritorio para Windows 11 x64, enfocada inicialmente en el ASUS VivoBook Pro 15 OLED M3500QC.** Implementada en C#/.NET 8 con Windows Forms, acceso a APIs de ASUS System Analysis, lectura de RPM, botones 80%/100%, controles individuales y restauración a modo BIOS.
 
-> **Estado: prototipo en validación.** La compilación y las pruebas automatizadas (simuladas) pasan. En el M3500QC físico, la sonda de solo lectura ya identifica modelo, BIOS y DLL OEM, pero la API devuelve `-1` porque el driver de kernel `AsusSAIO` está `Degraded`/`Stop Pending` (regresión conocida del driver ASUS). El control manual y las RPM reales quedan por confirmar tras reiniciar/revertir driver; ver [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
+> **Estado: prototipo en validación (v0.4).** La compilación y las pruebas automatizadas (simuladas) pasan. En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` porque el driver de kernel `AsusSAIO` está `Degraded`/`Stop Pending` (regresión conocida del driver ASUS). Para no depender de ella, FanForge v0.4 añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md) y [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
 
 ## Funcionalidades
 
@@ -14,6 +14,9 @@
 - Interfaz que nunca confunde PWM solicitado con RPM medidas; muestra estado ASUS, modo, watchdog, CPU y registro de eventos; el trabajo de hardware ocurre fuera del hilo de UI.
 - Botón **VOLVER A BIOS**, comando `--restore`, restauración al cerrar y observador en proceso separado (`--watchdog`).
 - Comando **`--probe`** de solo lectura para leer modelo, BIOS, ventiladores, RPM y CPU sin activar el control manual.
+- **Backend ATKACPI** (v0.4): lee **RPM reales de CPU/GPU** (`0x00110013`/`0x00110014`, unidad = 100 RPM) aunque HealthyTable falle, y ofrece **perfiles ASUS** (Silencioso/Estándar/Rendimiento/Máximo) con verificación por lectura posterior.
+- **Temperatura de zona ACPI** (v0.4): proveedor suplementario vía WMI `MSAcpi_ThermalZoneTemperature` (aproximada, requiere elevación).
+- **Diagnóstico de capacidades** multibackend: comando `--hardware-diagnose` (solo lectura, vuelca valores RAW) y UI que habilita cada función según lo que el hardware realmente soporta.
 - Pruebas de reglas de negocio y de la máquina de estados con **controlador simulado (mock)**, pipeline Windows y scripts de diagnóstico.
 - Evita valores PWM bajos en el prototipo para no reducir de forma peligrosa la refrigeración.
 
@@ -63,6 +66,25 @@ Con una consola **elevada**, sin activar el control manual:
 
 Imprime modelo, versión BIOS, ventiladores detectados, RPM y temperatura de CPU. No escribe PWM.
 
+## Diagnóstico multibackend (solo lectura)
+
+Con una consola **elevada**, sin escribir nada:
+
+```powershell
+.\dist\FanForge.exe --hardware-diagnose
+```
+
+Proporciona el estado de cada proveedor (ATKACPI y zona térmica ACPI), RPM de CPU/GPU,
+temperatura, capacidades reales (`perfiles`, `curvas`, `pwm`) y el volcado de valores RAW de
+los métodos consultados. Para cambiar de perfil (escritura verificada por lectura posterior):
+
+```powershell
+.\dist\FanForge.exe --set-profile Standard
+```
+
+Perfiles válidos: `Auto`, `Whisper`, `Standard`, `Performance`, `Max`. Solo debe usarse cuando
+la persona esté presente y ningún otro programa controle los ventiladores.
+
 ## Prueba supervisada
 
 Antes de escribir PWM consulta [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Registra RPM en AUTO, prueba 80% durante ~10 segundos y luego 100% durante ~10 segundos. Verifica la lectura REAL de RPM. Usa **VOLVER A BIOS** inmediatamente ante resultados incoherentes; detén la prueba ante ruido mecánico anormal, temperaturas de riesgo o ventilador detenido.
@@ -79,13 +101,19 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 
 | Ruta | Responsabilidad |
 |---|---|
-| `FanForge.Core/FanPolicy.cs` | Política de modelo, porcentaje, duty, confirmación y selección de DLL |
+| `FanForge.Core/FanPolicy.cs` | Política de modelo, porcentaje, duty, confirmación, decodificación ATKACPI y selección de DLL |
 | `FanForge.Core/FanSession.cs` | Máquina de estados manual (reaplicar, confirmar, restaurar), testeable |
 | `FanForge.Core/Abstractions.cs` | `IFanBackend`, `FanReading`, eventos de control |
+| `FanForge.Core/Multibackend.cs` | `IFanTelemetryProvider`, `IFanControlBackend`, `FanCapabilities`, `TelemetrySnapshot` |
 | `FanForge.Win/AsusNative.cs` | Interop de exports ASUS, carga de DLL OEM |
 | `FanForge.Win/AsusHardware.cs` | Lectura, escritura y restauración serializadas (I/O nativo) |
+| `FanForge.Win/AsusAcpiNative.cs` | Interop ATKACPI (`DeviceGet`/`DeviceSet`, métodos y constantes) |
+| `FanForge.Win/AsusAcpiTelemetry.cs` | Proveedor de RPM ATKACPI (solo lectura) |
+| `FanForge.Win/AsusAcpiControlBackend.cs` | Cambio de perfil ASUS verificado por lectura posterior |
+| `FanForge.Win/AcpiThermalZoneTelemetry.cs` | Temperatura de zona ACPI (WMI, aproximada) |
+| `FanForge.Win/FanBackendManager.cs` | Selección/combinación de proveedores y capacidades |
 | `FanForge.Win/Watchdog.cs` | Recuperación al terminar el proceso padre |
-| `FanForge.Win/MainForm.cs` | Dashboard WinForms, RPM, estado y acciones |
+| `FanForge.Win/MainForm.cs` | Dashboard WinForms con reconocimiento de capacidades |
 | `FanForge.Tests/` | Pruebas de política y de sesión con backend falso |
 | `scripts/` | Diagnóstico, compilación y restauración |
 | `docs/` | Plan y protocolo de pruebas |

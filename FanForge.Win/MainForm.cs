@@ -23,13 +23,18 @@ internal sealed class MainForm : Form
 
     private FanSession? _session;
     private Process? _watchdog;
+    private FanBackendManager? _telemetry;
+    private AsusAcpiControlBackend? _acpiControl;
+    private FanCapabilities? _caps;
     private readonly List<(TrackBar Slider, Label Rpm, Label Percent)> _rows = new();
     private readonly FlowLayoutPanel _fanPanel;
-    private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _temperature, _lastUpdate;
+    private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _providerLine, _temperature, _lastUpdate;
     private readonly TextBox _diagnostic;
     private readonly Button _hundred, _eighty, _apply, _automatic;
+    private readonly Button _whisper, _standard, _performance, _max;
     private readonly System.Windows.Forms.Timer _timer;
     private bool _polling, _closing, _initializing, _manualConfirmed;
+    private bool _profileBusy;
 
     public MainForm()
     {
@@ -75,11 +80,12 @@ internal sealed class MainForm : Form
         _modelLine = Label("Modelo: pendiente", 10, Foreground);
         _biosLine = Label("BIOS: pendiente", 10, Muted);
         _fanCountLine = Label("Ventiladores: pendiente", 10, Muted);
+        _providerLine = Label("Proveedores: pendiente", 10, Muted);
         _mode = Label("Modo: pendiente", 11, Foreground, FontStyle.Bold);
         _watchdogState = Label("Watchdog: inactivo", 10, Muted);
         _temperature = Label("CPU: pendiente", 13, Accent, FontStyle.Bold);
         _lastUpdate = Label("Última lectura: --:--:--", 9, Muted);
-        foreach (var control in new Control[] { _lastUpdate, _watchdogState, _mode, _temperature, _fanCountLine, _biosLine, _modelLine })
+        foreach (var control in new Control[] { _lastUpdate, _watchdogState, _mode, _temperature, _providerLine, _fanCountLine, _biosLine, _modelLine })
             card.Controls.Add(control);
         card.Controls.Add(Label("PWM pedido NO equivale a RPM medidas", 9, Warning));
         right.Controls.Add(card, 0, 0);
@@ -108,8 +114,19 @@ internal sealed class MainForm : Form
             Label("70–100% manual · pruebas solo supervisadas · ante cualquier anomalía pulsa VOLVER A BIOS.", 9, Muted)
         });
 
+        var profiles = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 62, Padding = new Padding(22, 8, 10, 4) };
+        _whisper = Button("PERFIL SILENCIOSO", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Whisper));
+        _standard = Button("PERFIL ESTÁNDAR", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Standard));
+        _performance = Button("PERFIL RENDIMIENTO", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Performance));
+        _max = Button("PERFIL MÁXIMO", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Max));
+        profiles.Controls.AddRange(new Control[]
+        {
+            Label("Perfiles ASUS (ATKACPI):", 10, Muted), _whisper, _standard, _performance, _max
+        });
+
         Controls.Add(center);
         Controls.Add(footer);
+        Controls.Add(profiles);
         Controls.Add(top);
         ToggleControls(false);
         _timer = new System.Windows.Forms.Timer { Interval = 2000 };
@@ -156,6 +173,14 @@ internal sealed class MainForm : Form
         _automatic.Enabled = enabled;
     }
 
+    private void ToggleProfiles(bool enabled)
+    {
+        _whisper.Enabled = enabled && !_profileBusy;
+        _standard.Enabled = enabled && !_profileBusy;
+        _performance.Enabled = enabled && !_profileBusy;
+        _max.Enabled = enabled && !_profileBusy;
+    }
+
     private void Log(string message)
     {
         if (_closing || IsDisposed) return;
@@ -170,6 +195,7 @@ internal sealed class MainForm : Form
         UseWaitCursor = true;
         _status.Text = "Inicializando interfaz ASUS…";
         ToggleControls(false);
+        ToggleProfiles(false);
         try
         {
             string model = AsusHardware.Model();
@@ -177,15 +203,60 @@ internal sealed class MainForm : Form
             _biosLine.Text = "BIOS: " + AsusHardware.BiosVersion();
             Log("Detectado: " + model);
 
-            AsusHardware backend = await Task.Run(() => new AsusHardware());
-            if (_closing) { backend.Dispose(); return; }
-            _session = new FanSession(backend);
-            _fanCountLine.Text = "Ventiladores detectados: " + backend.FanCount;
-            BuildFanRows(backend.FanCount);
-            Log("DLL OEM cargada. Ventiladores: " + backend.FanCount);
-            _status.Text = "ASUS conectado · BIOS automático";
-            _mode.Text = "Modo: BIOS (automático)";
-            ToggleControls(true);
+            // Always create the read-only ACPI/thermal telemetry path; it works when the
+            // HealthyTable/WinIO route is degraded.
+            _telemetry = new FanBackendManager(
+                new IFanTelemetryProvider[] { new AsusAcpiTelemetry(), new AcpiThermalZoneTelemetry() },
+                Array.Empty<IFanControlBackend>());
+            _acpiControl = new AsusAcpiControlBackend();
+
+            if (_telemetry != null)
+            {
+                _caps = await _telemetry.GetBestCapabilitiesAsync(CancellationToken.None);
+                _providerLine.Text = "Proveedores: " + string.Join(", ", _telemetry.TelemetryProviders);
+            }
+
+            // Manual PWM needs the OEM HealthyTable path; it may be unavailable on this driver.
+            bool manual = false;
+            try
+            {
+                AsusHardware backend = await Task.Run(() => new AsusHardware());
+                if (_closing) { backend.Dispose(); return; }
+                _session = new FanSession(backend);
+                _fanCountLine.Text = "Ventiladores (HealthyTable): " + backend.FanCount;
+                BuildFanRows(backend.FanCount);
+                manual = true;
+                Log("DLL OEM HealthyTable disponible. Ventiladores: " + backend.FanCount);
+            }
+            catch (Exception ex)
+            {
+                Log("HealthyTable no disponible: " + ex.GetType().Name + ": " + ex.Message);
+                _fanCountLine.Text = "Ventiladores (HealthyTable): no disponibles";
+            }
+
+            // ACPI profile control is independent from PWM.
+            var controlCaps = await _acpiControl.GetCapabilitiesAsync(CancellationToken.None);
+            ToggleProfiles(controlCaps.SupportsProfiles);
+            Log("Control ACPI: perfiles=" + controlCaps.SupportsProfiles +
+                " curvas=" + controlCaps.SupportsFanCurves + " pwm=" + controlCaps.SupportsPwmDirect);
+
+            if (manual)
+            {
+                _status.Text = "ASUS HealthyTable + ACPI · BIOS automático";
+                _mode.Text = "Modo: BIOS (automático)";
+                ToggleControls(true);
+            }
+            else if (_caps?.TelemetryState is TelemetryState.Supported or TelemetryState.ReadOnly)
+            {
+                _status.Text = "Telemetría ACPI (solo lectura) + perfiles";
+                _mode.Text = "Modo: ASUS (perfiles)";
+            }
+            else
+            {
+                _status.Text = "NO COMPATIBLE / DRIVER NO DISPONIBLE";
+                Log("Ningún backend de telemetría respondió.");
+            }
+
             _timer.Start();
             await PollAsync();
         }
@@ -313,12 +384,52 @@ internal sealed class MainForm : Form
         UpdateWatchdogState();
     }
 
+    private async Task ApplyProfile(FanProfile profile)
+    {
+        if (_acpiControl == null || _profileBusy) return;
+        _profileBusy = true;
+        ToggleProfiles(true);
+        _status.Text = "Aplicando perfil " + profile + "…";
+        try
+        {
+            var result = await Task.Run(() =>
+                _acpiControl.ApplyAsync(new FanControlRequest(profile, null, null), CancellationToken.None));
+            Log((result.Success ? "Perfil " : "Perfil NO ") + profile + ": " + result.Message);
+            _mode.Text = result.Success ? "Modo: " + profile : "Modo: (sin cambio)";
+            _status.Text = result.Success ? "Perfil ASUS aplicado (verificado)" : "Perfil no confirmado";
+        }
+        catch (Exception ex)
+        {
+            Log("Fallo al aplicar perfil: " + ex.Message);
+            _status.Text = "Error al aplicar perfil";
+        }
+        finally
+        {
+            _profileBusy = false;
+            ToggleProfiles(_caps?.SupportsProfiles ?? true);
+        }
+    }
+
     private async Task PollAsync()
     {
-        if (_polling || _closing || _session == null) return;
+        if (_polling || _closing || (_session == null && _telemetry == null)) return;
         _polling = true;
         try
         {
+            if (_session == null)
+            {
+                TelemetrySnapshot snap = await Task.Run(() => _telemetry!.ReadBestAsync(CancellationToken.None));
+                if (_closing || IsDisposed) return;
+                string rpms = snap.Rpms.Count == 0
+                    ? "sin lectura"
+                    : string.Join(" · ", snap.Rpms.Select(r => r.Type + " " + r.Value.ToString("N0") + " RPM"));
+                _fanCountLine.Text = "RPM medidas: " + rpms;
+                _temperature.Text = "CPU: " + (snap.Temperatures.CpuCelsius?.ToString() ?? "n/a") + " °C"
+                    + (snap.Temperatures.GpuCelsius is int g ? " · GPU: " + g + " °C" : string.Empty);
+                _lastUpdate.Text = "Última lectura: " + DateTime.Now.ToString("HH:mm:ss");
+                return;
+            }
+
             FanReading snapshot = await Task.Run(() => _session.Read());
             if (_closing || IsDisposed || _session == null) return;
             for (int i = 0; i < snapshot.Rpms.Length && i < _rows.Count; i++)
@@ -383,6 +494,8 @@ internal sealed class MainForm : Form
         try { _session?.Restore(); } catch (Exception ex) { Log("Fallo al restaurar al cerrar: " + ex.Message); }
         _closing = true;
         try { _session?.Dispose(); } catch { }
+        _acpiControl?.Dispose();
+        _telemetry?.Dispose();
         _watchdog?.Dispose(); // Watchdog waits for this process to exit, then restores again.
         _timer.Dispose();
     }

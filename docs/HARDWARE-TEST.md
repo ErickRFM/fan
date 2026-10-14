@@ -62,6 +62,39 @@ HealthyTable_FanRPM()      => -1
 Thermal_Read_Cpu_Temperature() => 2147483647 (0x7FFFFFFF)
 ```
 
+## Telemetría alternativa ATKACPI — 2026-10-14 (v0.4, elevado)
+
+Como la ruta HealthyTable está bloqueada, FanForge v0.4 incorpora el backend **ATKACPI**
+(`\\.\ATKACPI`). La sonda multibackend de solo lectura confirma **RPM reales** incluso con el
+driver `AsusSAIO` degradado:
+
+```
+Proveedores: AsusACPI (ATKACPI), ACPI thermal zone (WMI)
+Estado: Supported   CPU/GPU=True/True
+RPM: Cpu=4400..6100 / Gpu=3800..4000        (raw 44..61 / 38..40, unidad = 100 RPM)
+Temperaturas: CPU=~90 (zona ACPI/WMI)  GPU=n/a
+Control: perfiles=True  curvas=False  pwm=False
+Raw VivoBookMode(0x00110019) = 131074     (soportado)
+Raw PerformanceMode(0x00120075) = -65536   (no soportado)
+Raw DevsCPUFanCurve/GPU = -65536           (curvas no soportadas)
+```
+
+Ejecutar con:
+
+```powershell
+.\dist\FanForge.exe --hardware-diagnose
+```
+
+Validación externa recomendada: comparar el orden de magnitud y la tendencia con
+**ASUS ProArt Creator Hub** (que en este modelo muestra RPM y temperaturas).
+
+### Escritura de perfil (requiere operador presente)
+
+El cambio de perfil ASUS (`--set-profile` o los botones de la UI) se realiza por ATKACPI y se
+**verifica leyendo de nuevo** el modo. No se ha ejecutado todavía en el equipo físico: la
+validación de escritura queda pendiente de autorización explícita del usuario con la persona
+presente. Es una operación reversible (no toca EC crudo ni firmware).
+
 ## Causa probable (documentada, no modificada)
 
 El driver de kernel **`AsusSAIO`** (el que sirve los datos a `AsusWinIO64.dll`) está en estado **`Stop Pending` y `Degraded`** (`sc query AsusSAIO`, `driverquery /v`). Con el driver degradado, la biblioteca OEM inicializa pero no puede leer el EC, por lo que devuelve `-1`.

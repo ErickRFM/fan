@@ -12,9 +12,20 @@
 - [ ] Verificar ejecución verde del workflow en GitHub Actions (no confundir con workflow creado).
 
 ## F1 — Validación física obligatoria
-- [ ] Leer RPM, CPU y conteo en VivoBook M3500QC con `--probe` (consola elevada).
-- [ ] Confirmar si OEM API permite control 80% y 100% (medir RPM reales).
+- [x] Leer RPM reales en VivoBook M3500QC mediante backend ATKACPI (`--hardware-diagnose`): CPU ~4400–6100, GPU ~3800–4000 RPM.
+- [x] Confirmar temperatura vía zona térmica ACPI (WMI), aproximada (~90 °C).
+- [x] Confirmar capacidades reales: perfiles = sí; curvas = no; PWM ATKACPI = no.
+- [ ] Confirmar control PWM 70–100% por HealthyTable (bloqueado por driver `AsusSAIO`).
+- [ ] Validar escritura de perfil ATKACPI en banco (pendiente de autorización del usuario).
 - [ ] Confirmar recuperación en fallas, suspensión y salida normal.
+- [ ] Comparar RPM con ProArt Creator Hub.
+
+## F4 — Multibackend y telemetría (v0.4)
+- [x] Contratos `IFanTelemetryProvider`/`IFanControlBackend`, capacidades y `FanBackendManager`.
+- [x] Proveedor ATKACPI de RPM (solo lectura) y proveedor de temperatura ACPI/WMI.
+- [x] Control de perfiles ASUS verificado por lectura posterior.
+- [x] UI con reconocimiento de capacidades (perfiles vs. PWM manual).
+- [ ] Historial y gráficas RPM/temperatura en la UI.
 
 ## F2 — Robustez
 - [ ] Validar heartbeat bidireccional watchdog y manejo de crashes.
