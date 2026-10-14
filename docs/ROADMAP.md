@@ -31,7 +31,7 @@
 - [ ] Validar heartbeat bidireccional watchdog y manejo de crashes.
 - [x] Detección de conflictos con MyASUS/Armoury Crate/G-Helper (aviso en UI y `--hardware-diagnose`).
 - [x] Control aislado del hilo de GUI y timeouts de driver (inicialización asíncrona).
-- [ ] Firma/versión verificada de la biblioteca OEM.
+- [x] Firma/versión verificada de la biblioteca OEM (`OemLibraryPolicy`/`OemLibraryVerifier`).
 
 ## F3 — UX
 - [x] Historial y gráficas RPM/temperatura.

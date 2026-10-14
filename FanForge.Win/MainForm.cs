@@ -277,6 +277,9 @@ internal sealed class MainForm : Form
                 BuildFanRows(backend.FanCount);
                 manual = true;
                 Log("DLL OEM HealthyTable disponible. Ventiladores: " + backend.FanCount);
+                if (backend.LibraryInfo.Length >= 2)
+                    Log("DLL OEM: " + backend.LibraryInfo[0] + " · " + backend.LibraryInfo[1] +
+                        (backend.LibraryInfo.Length >= 3 ? " · " + backend.LibraryInfo[2] : string.Empty));
             }
             catch (Exception ex)
             {
