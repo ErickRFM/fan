@@ -57,3 +57,10 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [x] Telemetría no declara `Supported` si el driver/ventiladores no responden.
 - [x] Bloqueo de selección de perfil mientras hay una sesión PWM manual.
 - [ ] Validar perfil y restauración en VivoBook real; no se ejecutaron escrituras de hardware.
+
+## Auditoría de software v0.6 — entrega
+- [x] Tests y compilación v0.6 verificados (115 PASS; PR #13).
+- [x] Guardas ATKACPI y firma nativa en ruta WinIO.
+- [ ] Verificación presencial de firma de AsusWinIO64.dll en la instalación real.
+- [ ] Confirmar cambios de perfiles ASUS comparando RPM con ProArt.
+- [ ] PWM manual y retorno tras suspensión/crash pendientes de medición.

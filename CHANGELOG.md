@@ -1,5 +1,5 @@
-- Authenticode ahora usa `WinVerifyTrust` para verificar integridad/cadena offline; ya no confunde el texto CN con firma válida. Bloquea carga de DLL OEM no validada.
-## v0.6.0 — Auditoría de interoperabilidad y seguridad (en revisión)
+## v0.6.0 — Auditoría de interoperabilidad y seguridad (integrado en main, pendiente de validación física)
+- Authenticode usa `WinVerifyTrust` para verificar integridad/cadena offline; ya no confunde el texto CN con firma válida. Bloquea carga de DLL OEM no validada.
 - Guardas de modelo en ATKACPI y CLI.
 - Handles por operación para evitar cierres cruzados durante sondeo/cambio de perfil.
 - Detección de errores reales en capacidades; lectura no equivale a escritura.
