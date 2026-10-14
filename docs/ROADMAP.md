@@ -28,7 +28,8 @@
 - [x] Historial acotado de telemetría y mini-gráficas de temperatura/RPM en la UI.
 
 ## F2 — Robustez
-- [ ] Validar heartbeat bidireccional watchdog y manejo de crashes.
+- [x] Heartbeat bidireccional del watchdog (lógico): la UI detecta un observador perdido y restaura BIOS (`WatchdogPolicy`).
+- [ ] Validar físicamente la restauración por crash real de la UI/observador en el M3500QC.
 - [x] Detección de conflictos con MyASUS/Armoury Crate/G-Helper (aviso en UI y `--hardware-diagnose`).
 - [x] Control aislado del hilo de GUI y timeouts de driver (inicialización asíncrona).
 - [x] Firma/versión verificada de la biblioteca OEM (`OemLibraryPolicy`/`OemLibraryVerifier`).
