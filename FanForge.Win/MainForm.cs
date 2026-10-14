@@ -223,7 +223,7 @@ internal sealed class MainForm : Form
                 _rows[i].Rpm.Tag = snapshot.Rpms[i];
             }
             _temperature.Text = snapshot.Temperature is int v ? "CPU: " + v + " °C" : "CPU: sin lectura OEM";
-            if (_hardware.Manual && snapshot.Rpms.Any(v => v <= 0))
+            if (_hardware.Manual && DateTime.UtcNow - _changedAt > TimeSpan.FromSeconds(8) && snapshot.Rpms.Any(v => v <= 0))
             {
                 Log("RPM cero o inválidas en modo manual: restauración preventiva.");
                 Restore();
