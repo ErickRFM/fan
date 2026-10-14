@@ -55,6 +55,33 @@ public sealed record FanControlRequest(
 
 public sealed record ControlResult(bool Success, string? Message);
 
+/// <summary>Hardware-independent combination of telemetry from several providers.</summary>
+public static class TelemetryMerge
+{
+    public static readonly TelemetrySnapshot Empty =
+        new(Array.Empty<FanRpm>(), new TemperatureReading(null, null), DateTimeOffset.MinValue);
+
+    /// <summary>
+    /// RPMs come from the first snapshot that carries any valid value; each temperature is
+    /// taken from the first snapshot that supplies it. Invalid RPMs (-1) are dropped.
+    /// </summary>
+    public static TelemetrySnapshot Merge(IEnumerable<TelemetrySnapshot> snapshots)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        var rpms = new List<FanRpm>();
+        int? cpu = null, gpu = null;
+        foreach (var snap in snapshots)
+        {
+            if (snap is null) continue;
+            if (rpms.Count == 0)
+                rpms.AddRange(snap.Rpms.Where(r => r.Value >= 0));
+            cpu ??= snap.Temperatures.CpuCelsius;
+            gpu ??= snap.Temperatures.GpuCelsius;
+        }
+        return new TelemetrySnapshot(rpms, new TemperatureReading(cpu, gpu), DateTimeOffset.UtcNow);
+    }
+}
+
 /// <summary>Read-only telemetry provider (RPM, temperatures) independent from control.</summary>
 public interface IFanTelemetryProvider
 {

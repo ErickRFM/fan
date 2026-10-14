@@ -34,20 +34,13 @@ public sealed class FanBackendManager : IDisposable
     /// </summary>
     public async Task<TelemetrySnapshot> ReadBestAsync(CancellationToken ct)
     {
-        var rpms = new List<FanRpm>();
-        int? cpu = null, gpu = null;
+        var snapshots = new List<TelemetrySnapshot>(_telemetry.Length);
         foreach (var p in _telemetry)
         {
-            TelemetrySnapshot snap;
-            try { snap = await p.ReadAsync(ct); }
-            catch { continue; }
-
-            if (rpms.Count == 0)
-                rpms.AddRange(snap.Rpms.Where(r => r.Value >= 0));
-            cpu ??= snap.Temperatures.CpuCelsius;
-            gpu ??= snap.Temperatures.GpuCelsius;
+            try { snapshots.Add(await p.ReadAsync(ct)); }
+            catch { }
         }
-        return new TelemetrySnapshot(rpms, new TemperatureReading(cpu, gpu), DateTimeOffset.UtcNow);
+        return TelemetryMerge.Merge(snapshots);
     }
 
     public IEnumerable<string> TelemetryProviders => _telemetry.Select(t => t.Name);

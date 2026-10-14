@@ -10,6 +10,11 @@
 - **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
 - **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
 
+## 0.4.1 — Combinación de telemetría testeable
+- **`TelemetryMerge` en Core:** la prioridad entre proveedores (primer RPM válido, relleno de temperatura) deja de depender del hardware y se cubre con pruebas unitarias.
+- **Pruebas:** 61 comprobaciones (antes 55): prioridad del primer proveedor, descarte de RPM inválidas, relleno de temperatura y conjunto vacío.
+- Sin cambios de comportamiento en hardware; `FanBackendManager` usa ahora la función pura.
+
 ## 0.3.0 — Validación Windows y arquitectura (rama `feat/windows-hardware-validation-v03`)
 - **Diagnóstico físico (M3500QC, elevado):** modelo/BIOS/DLL detectados correctamente; `HealthyTable_FanCounts()` y `FanRPM()` devuelven `-1`. El driver de kernel `AsusSAIO` está en estado `Stop Pending`/`Degraded`, coincidiendo con la regresión conocida de `AsusWinIO64.dll`. El control manual queda bloqueado a nivel de driver ASUS; no se modificaron drivers ni el EC. Ver `docs/HARDWARE-TEST.md` y `docs/QA.md`.
 - **Mensaje de error accionable** cuando la API OEM devuelve un conteo inválido, con pasos seguros (revisar MyASUS Fan Diagnosis, reiniciar, revertir driver).

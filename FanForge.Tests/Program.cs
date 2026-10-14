@@ -74,6 +74,25 @@ Check(FanPolicy.AcpiTemperature(200) == -1, "acpi temp over max invalid");
 Check(FanPolicy.VivoBookWireMode(1) == 2 && FanPolicy.VivoBookWireMode(2) == 1, "vivobook turbo/silent swap");
 Check(FanPolicy.VivoBookWireMode(0) == 0, "vivobook balanced unchanged");
 
+// ---- Telemetry: provider merge ----
+var acpi = new TelemetrySnapshot(
+    new[] { new FanRpm(FanType.Cpu, 4400), new FanRpm(FanType.Gpu, 3800) },
+    new TemperatureReading(null, null), DateTimeOffset.UnixEpoch);
+var thermal = new TelemetrySnapshot(
+    Array.Empty<FanRpm>(), new TemperatureReading(90, null), DateTimeOffset.UnixEpoch);
+var merged = TelemetryMerge.Merge(new[] { acpi, thermal });
+Check(merged.Rpms.Count == 2 && merged.Rpms[0].Value == 4400, "merge keeps first provider RPMs");
+Check(merged.Temperatures.CpuCelsius == 90 && merged.Temperatures.GpuCelsius is null, "merge fills temp from second provider");
+
+var staleWinIo = new TelemetrySnapshot(
+    new[] { new FanRpm(FanType.Cpu, -1) }, new TemperatureReading(null, 70), DateTimeOffset.UnixEpoch);
+var mergedFallback = TelemetryMerge.Merge(new[] { staleWinIo, acpi });
+Check(mergedFallback.Rpms.Count == 2 && mergedFallback.Rpms[0].Value == 4400, "merge falls back past empty provider");
+Check(mergedFallback.Temperatures.GpuCelsius == 70, "merge keeps earlier temperature");
+
+Check(TelemetryMerge.Merge(Array.Empty<TelemetrySnapshot>()).Rpms.Count == 0, "merge of nothing is empty");
+Check(TelemetryMerge.Merge(new[] { acpi }).Temperatures.CpuCelsius is null, "merge without temperature yields null");
+
 // ---- Session: manual state machine with a mock controller ----
 var time = new ManualTime();
 var backend = new FakeBackend(2, new[] { 1000, 1000 });
