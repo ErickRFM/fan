@@ -26,7 +26,7 @@ internal static class Program
             }
         }
 
-        using var mutex = new Mutex(true, @"LocalFanForge-M3500QC", out bool acquired);
+        using var mutex = new Mutex(true, @"Local\FanForge-M3500QC", out bool acquired);
         if (!acquired)
         {
             MessageBox.Show("FanForge ya está abierto.", "FanForge");
