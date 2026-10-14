@@ -76,8 +76,14 @@ internal sealed class AsusHardware : IFanBackend
         try
         {
             int count = AsusNative.HealthyTable_FanCounts();
+            if (count < 1)
+                throw new NotSupportedException(
+                    "ASUS no devolvió un conteo de ventiladores válido (" + count + "). " +
+                    "Suele indicar que el driver ASUS (AsusSAIO / ASUS System Control Interface) no expone datos. " +
+                    "Comprueba que el Diagnóstico de ventilador de MyASUS funcione, reinicia Windows y, " +
+                    "si persiste, revierte el driver ASUS. FanForge no modifica drivers ni el EC.");
             if (!FanPolicy.ValidFanCount(count))
-                throw new NotSupportedException("Invalid fan count returned by ASUS: " + count);
+                throw new NotSupportedException("Número de ventiladores inesperado devuelto por ASUS: " + count);
             FanCount = count;
         }
         catch

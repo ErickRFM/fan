@@ -1,6 +1,8 @@
 # Historial
 
 ## 0.3.0 — Validación Windows y arquitectura (rama `feat/windows-hardware-validation-v03`)
+- **Diagnóstico físico (M3500QC, elevado):** modelo/BIOS/DLL detectados correctamente; `HealthyTable_FanCounts()` y `FanRPM()` devuelven `-1`. El driver de kernel `AsusSAIO` está en estado `Stop Pending`/`Degraded`, coincidiendo con la regresión conocida de `AsusWinIO64.dll`. El control manual queda bloqueado a nivel de driver ASUS; no se modificaron drivers ni el EC. Ver `docs/HARDWARE-TEST.md` y `docs/QA.md`.
+- **Mensaje de error accionable** cuando la API OEM devuelve un conteo inválido, con pasos seguros (revisar MyASUS Fan Diagnosis, reiniciar, revertir driver).
 - **Entorno:** verificado en ASUS VivoBook M3500QC_D3500QC, Windows 11 x64, BIOS M3500QC.316, ASUS System Control Interface v3 3.1.72.0, .NET 8 SDK 8.0.426.
 - **Selección de DLL OEM determinista:** la biblioteca se elige por versión más reciente entre varias carpetas del DriverStore (se detectaron 1.1.4.0 y 1.1.2.0); ya no depende del orden de enumeración.
 - **Núcleo testeable:** `IFanBackend`, `FanReading` y `FanSession` en `FanForge.Core`; la lógica de reaplicar/confirmar/restaurar deja de depender del hardware.

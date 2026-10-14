@@ -2,7 +2,7 @@
 
 **Aplicación de escritorio para Windows 11 x64, enfocada inicialmente en el ASUS VivoBook Pro 15 OLED M3500QC.** Implementada en C#/.NET 8 con Windows Forms, acceso a APIs de ASUS System Analysis, lectura de RPM, botones 80%/100%, controles individuales y restauración a modo BIOS.
 
-> **Estado: prototipo en validación.** La compilación y las pruebas automatizadas (simuladas) pasan, pero **no se ha confirmado todavía, con mediciones físicas, que la BIOS/EC de una M3500QC acepte órdenes manuales**. Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
+> **Estado: prototipo en validación.** La compilación y las pruebas automatizadas (simuladas) pasan. En el M3500QC físico, la sonda de solo lectura ya identifica modelo, BIOS y DLL OEM, pero la API devuelve `-1` porque el driver de kernel `AsusSAIO` está `Degraded`/`Stop Pending` (regresión conocida del driver ASUS). El control manual y las RPM reales quedan por confirmar tras reiniciar/revertir driver; ver [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
 
 ## Funcionalidades
 

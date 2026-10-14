@@ -33,24 +33,25 @@ internal static class Program
     private static int Probe()
     {
         AttachConsole();
+        Report("FanForge probe (solo lectura; no escribe PWM)");
         try
         {
-            Console.WriteLine("FanForge probe (solo lectura; no escribe PWM)");
-            Console.WriteLine("Modelo: " + AsusHardware.Model());
-            Console.WriteLine("BIOS: " + AsusHardware.BiosVersion());
+            Report("Modelo: " + AsusHardware.Model());
+            Report("BIOS: " + AsusHardware.BiosVersion());
             string? dll = AsusHardware.FindOfficialDll();
-            Console.WriteLine("DLL OEM: " + (dll ?? "no encontrada"));
+            Report("DLL OEM: " + (dll ?? "no encontrada"));
             using var hardware = new AsusHardware();
-            Console.WriteLine("Ventiladores detectados: " + hardware.FanCount);
+            Report("Ventiladores detectados: " + hardware.FanCount);
             FanReading reading = hardware.Read();
-            Console.WriteLine("RPM: " + string.Join(" / ", reading.Rpms));
-            Console.WriteLine("CPU: " + (reading.Temperature is int t ? t + " °C" : "sin lectura OEM"));
-            Console.WriteLine("Probe completado; control manual NO activado.");
+            Report("RPM: " + string.Join(" / ", reading.Rpms));
+            Report("CPU: " + (reading.Temperature is int t ? t + " °C" : "sin lectura OEM"));
+            Report("Probe completado; control manual NO activado.");
             return 0;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine("Probe falló: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
             return 2;
         }
     }
@@ -58,18 +59,36 @@ internal static class Program
     private static int RestoreNow()
     {
         AttachConsole();
+        Report("FanForge --restore");
         try
         {
             using var hardware = new AsusHardware();
             hardware.Restore();
-            Console.WriteLine("Restauración solicitada: modo automático ASUS.");
+            Report("Restauración solicitada: modo automático ASUS.");
             return 0;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine("No se pudo restaurar: " + ex.Message);
+            Report("ERROR: " + ex.Message);
             return 2;
         }
+    }
+
+    /// <summary>Writes to console (when attached) and to a persistent CLI log for evidence.</summary>
+    private static void Report(string line)
+    {
+        Console.WriteLine(line);
+        try
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FanForge");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "fanforge-cli.log"),
+                DateTimeOffset.Now.ToString("u") + " " + line + Environment.NewLine);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private const int AttachParentProcess = -1;
