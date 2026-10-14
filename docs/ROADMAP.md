@@ -9,7 +9,7 @@
 - [x] Selección determinista de la versión más reciente de `AsusWinIO64.dll`.
 - [x] Núcleo `FanForge.Core` con `IFanBackend`/`FanSession` y controlador falso para pruebas.
 - [x] Sonda de solo lectura `--probe`.
-- [ ] Verificar ejecución verde del workflow en GitHub Actions (no confundir con workflow creado).
+- [x] Verificar ejecución verde del workflow en GitHub Actions (PR #5, #6, #8).
 
 ## F1 — Validación física obligatoria
 - [x] Leer RPM reales en VivoBook M3500QC mediante backend ATKACPI (`--hardware-diagnose`): CPU ~4400–6100, GPU ~3800–4000 RPM.
@@ -29,12 +29,12 @@
 
 ## F2 — Robustez
 - [ ] Validar heartbeat bidireccional watchdog y manejo de crashes.
-- [ ] Detección de conflictos con MyASUS/G-Helper.
+- [x] Detección de conflictos con MyASUS/Armoury Crate/G-Helper (aviso en UI y `--hardware-diagnose`).
 - [x] Control aislado del hilo de GUI y timeouts de driver (inicialización asíncrona).
 - [ ] Firma/versión verificada de la biblioteca OEM.
 
 ## F3 — UX
-- [ ] Historial y gráficas RPM/temperatura.
+- [x] Historial y gráficas RPM/temperatura.
 - [ ] Perfiles personalizables validados contra sensores.
 - [ ] Accesibilidad 125–200% y pruebas teclado.
 - [ ] Empaquetado instalador firmado.

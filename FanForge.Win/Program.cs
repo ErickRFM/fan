@@ -67,6 +67,10 @@ internal static class Program
     {
         AttachConsole();
         Report("FanForge hardware-diagnose (read-only; no escribe PWM)");
+        var conflicts = FanToolConflictDetector.Running();
+        Report(conflicts.Count == 0
+            ? "Conflictos: ninguna herramienta ASUS de control en ejecucion."
+            : "Conflictos: " + string.Join(", ", conflicts) + " (pueden competir por el control).");
         try
         {
             using var manager = new FanBackendManager(
