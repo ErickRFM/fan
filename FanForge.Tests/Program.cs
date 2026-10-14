@@ -137,6 +137,17 @@ Check(!FanPolicy.VivoBookProfileConfirmed(-65536, 0), "reject failed readback ev
 Check(!FanPolicy.VivoBookProfileConfirmed(131073, 2), "reject mismatched readback");
 Check(!FanPolicy.VivoBookProfileConfirmed(131075, 3), "reject unsupported profile 3");
 
+// ---- Watchdog: bidirectional health ----
+Check(WatchdogPolicy.Assess(false, false) == WatchdogHealth.NotStarted, "watchdog not started");
+Check(WatchdogPolicy.Assess(true, false) == WatchdogHealth.Active, "watchdog active");
+Check(WatchdogPolicy.Assess(true, true) == WatchdogHealth.Lost, "watchdog lost when exited");
+Check(WatchdogPolicy.ShouldRestoreOnLost(WatchdogHealth.Lost, true), "restore when lost during manual");
+Check(!WatchdogPolicy.ShouldRestoreOnLost(WatchdogHealth.Lost, false), "no restore when not manual");
+Check(!WatchdogPolicy.ShouldRestoreOnLost(WatchdogHealth.Active, true), "no restore while active");
+Check(!WatchdogPolicy.ShouldRestoreOnLost(WatchdogHealth.NotStarted, true), "no restore before start");
+Check(WatchdogPolicy.Describe(WatchdogHealth.Active, 1234).Contains("1234"), "describe shows pid");
+Check(WatchdogPolicy.Describe(WatchdogHealth.Lost) == "Watchdog: PERDIDO", "describe lost");
+
 // ---- Control conflicts: known OEM tools ----
 Check(ControlConflicts.IsConflict("MyASUS"), "detects MyASUS");
 Check(ControlConflicts.IsConflict("myasus.exe"), "detects MyASUS exe, case-insensitive");
