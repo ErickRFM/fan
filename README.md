@@ -17,6 +17,7 @@
 - **Backend ATKACPI** (v0.4): lee **RPM reales de CPU/GPU** (`0x00110013`/`0x00110014`, unidad = 100 RPM) aunque HealthyTable falle, y ofrece **perfiles ASUS** (Silencioso/Estándar/Rendimiento/Máximo) con verificación por lectura posterior.
 - **Temperatura de zona ACPI** (v0.4): proveedor suplementario vía WMI `MSAcpi_ThermalZoneTemperature` (aproximada, requiere elevación).
 - **Diagnóstico de capacidades** multibackend: comando `--hardware-diagnose` (solo lectura, vuelca valores RAW) y UI que habilita cada función según lo que el hardware realmente soporta.
+- **Historial y mini-gráficas** de temperatura CPU y RPM en el dashboard (búfer acotado, autoescala).
 - Pruebas de reglas de negocio y de la máquina de estados con **controlador simulado (mock)**, pipeline Windows y scripts de diagnóstico.
 - Evita valores PWM bajos en el prototipo para no reducir de forma peligrosa la refrigeración.
 
@@ -104,7 +105,8 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 | `FanForge.Core/FanPolicy.cs` | Política de modelo, porcentaje, duty, confirmación, decodificación ATKACPI y selección de DLL |
 | `FanForge.Core/FanSession.cs` | Máquina de estados manual (reaplicar, confirmar, restaurar), testeable |
 | `FanForge.Core/Abstractions.cs` | `IFanBackend`, `FanReading`, eventos de control |
-| `FanForge.Core/Multibackend.cs` | `IFanTelemetryProvider`, `IFanControlBackend`, `FanCapabilities`, `TelemetrySnapshot` |
+| `FanForge.Core/Multibackend.cs` | `IFanTelemetryProvider`, `IFanControlBackend`, `FanCapabilities`, `TelemetrySnapshot`, `TelemetryMerge` |
+| `FanForge.Core/TelemetryHistory.cs` | Búfer circular acotado de muestras para gráficas |
 | `FanForge.Win/AsusNative.cs` | Interop de exports ASUS, carga de DLL OEM |
 | `FanForge.Win/AsusHardware.cs` | Lectura, escritura y restauración serializadas (I/O nativo) |
 | `FanForge.Win/AsusAcpiNative.cs` | Interop ATKACPI (`DeviceGet`/`DeviceSet`, métodos y constantes) |
@@ -113,6 +115,7 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 | `FanForge.Win/AcpiThermalZoneTelemetry.cs` | Temperatura de zona ACPI (WMI, aproximada) |
 | `FanForge.Win/FanBackendManager.cs` | Selección/combinación de proveedores y capacidades |
 | `FanForge.Win/Watchdog.cs` | Recuperación al terminar el proceso padre |
+| `FanForge.Win/Sparkline.cs` | Mini-gráfica de línea con autoescala |
 | `FanForge.Win/MainForm.cs` | Dashboard WinForms con reconocimiento de capacidades |
 | `FanForge.Tests/` | Pruebas de política y de sesión con backend falso |
 | `scripts/` | Diagnóstico, compilación y restauración |

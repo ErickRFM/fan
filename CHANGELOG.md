@@ -10,6 +10,11 @@
 - **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
 - **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
 
+## 0.4.2 — Historial de telemetría y mini-gráficas
+- **`TelemetryHistory` en Core:** búfer circular acotado (180 muestras) con valores legibles por punto; testeable sin hardware.
+- **UI:** dos mini-gráficas (`Sparkline`) de temperatura CPU y RPM, con autoescala, alimentadas desde el historial en cada sondeo (sirven tanto la ruta HealthyTable como la ATKACPI).
+- **Pruebas:** 68 comprobaciones (antes 61): recorte a capacidad, orden, mapeo por tipo, descarte de valores no legibles y `Clear`.
+
 ## 0.4.1 — Combinación de telemetría testeable
 - **`TelemetryMerge` en Core:** la prioridad entre proveedores (primer RPM válido, relleno de temperatura) deja de depender del hardware y se cubre con pruebas unitarias.
 - **Pruebas:** 61 comprobaciones (antes 55): prioridad del primer proveedor, descarte de RPM inválidas, relleno de temperatura y conjunto vacío.

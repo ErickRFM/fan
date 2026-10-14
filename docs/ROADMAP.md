@@ -25,7 +25,7 @@
 - [x] Proveedor ATKACPI de RPM (solo lectura) y proveedor de temperatura ACPI/WMI.
 - [x] Control de perfiles ASUS verificado por lectura posterior.
 - [x] UI con reconocimiento de capacidades (perfiles vs. PWM manual).
-- [ ] Historial y gráficas RPM/temperatura en la UI.
+- [x] Historial acotado de telemetría y mini-gráficas de temperatura/RPM en la UI.
 
 ## F2 — Robustez
 - [ ] Validar heartbeat bidireccional watchdog y manejo de crashes.

@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **61/61 PASAN**. Cubren:
+Resultado: **68/68 PASAN**. Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -25,6 +25,7 @@ Resultado: **61/61 PASAN**. Cubren:
 - Selección de la DLL OEM más reciente (incluye conjunto vacío y ruta en blanco).
 - **Decodificación ATKACPI** (`AcpiFanRpm` de raw a RPM×100 con límites, `AcpiTemperature`) y **cambio de modo VivoBook** (intercambio Turbo/Silencio).
 - **Combinación de telemetría** (`TelemetryMerge`): prioridad del primer proveedor con RPM válidos, descarte de RPM `-1`, relleno de temperatura desde proveedores posteriores y caso vacío.
+- **Historial acotado** (`TelemetryHistory`): recorte a capacidad, orden cronológico, mapeo de RPM por tipo, descarte de valores no legibles, `Latest` y `Clear`.
 - Máquina de estados `FanSession` con **controlador falso**: aplicar, reaplicar por intervalo, evento de reaplicación, confirmación/no confirmación, restauración por parada, propagación de error OEM con restauración, y `Dispose` idempotente.
 
 Ninguna prueba toca hardware; el backend es un mock (`FakeBackend`) y el reloj es determinista (`ManualTime`).
