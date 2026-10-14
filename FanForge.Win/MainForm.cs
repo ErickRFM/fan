@@ -7,78 +7,106 @@ namespace FanForge;
 
 /// <summary>
 /// Windows 11 dashboard. A requested PWM value is NEVER displayed as an observed RPM.
+/// Hardware work happens off the UI thread; the manual session is supervised by FanSession.
 /// </summary>
 internal sealed class MainForm : Form
 {
     private static readonly Color Background = Color.FromArgb(14, 19, 30);
     private static readonly Color PanelColor = Color.FromArgb(27, 38, 55);
+    private static readonly Color BlockColor = Color.FromArgb(35, 49, 66);
     private static readonly Color Foreground = Color.FromArgb(232, 242, 252);
     private static readonly Color Accent = Color.FromArgb(69, 212, 196);
+    private static readonly Color Warning = Color.FromArgb(240, 180, 90);
+    private static readonly Color Danger = Color.FromArgb(226, 106, 106);
     private static readonly Color Muted = Color.FromArgb(165, 183, 202);
-    private AsusHardware? _hardware;
+    private static readonly Color ButtonNeutral = Color.FromArgb(43, 61, 81);
+
+    private FanSession? _session;
     private Process? _watchdog;
     private readonly List<(TrackBar Slider, Label Rpm, Label Percent)> _rows = new();
     private readonly FlowLayoutPanel _fanPanel;
-    private readonly Label _status, _temperature, _info;
+    private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _temperature, _lastUpdate;
     private readonly TextBox _diagnostic;
     private readonly Button _hundred, _eighty, _apply, _automatic;
     private readonly System.Windows.Forms.Timer _timer;
-    private bool _polling, _closing;
-    private int[]? _baseline;
-    private DateTime _changedAt;
+    private bool _polling, _closing, _initializing, _manualConfirmed;
 
     public MainForm()
     {
         Text = "FanForge · M3500QC · Windows 11";
-        Size = new Size(1010, 760);
-        MinimumSize = new Size(850, 650);
+        Size = new Size(1060, 780);
+        MinimumSize = new Size(900, 680);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Background;
         ForeColor = Foreground;
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
 
-        var top = new Panel { Dock = DockStyle.Top, Height = 135, Padding = new Padding(22) };
+        var top = new Panel { Dock = DockStyle.Top, Height = 138, Padding = new Padding(22) };
         var brand = Label("FANFORGE", 25, Accent, FontStyle.Bold);
         brand.Dock = DockStyle.Top;
-        brand.Height = 52;
-        top.Controls.Add(Label("ASUS VivoBook Pro M3500QC · Control OEM experimental", 10, Muted));
-        top.Controls.Add(brand);
+        brand.Height = 50;
+        var subtitle = Label("ASUS VivoBook Pro M3500QC · Control OEM experimental", 10, Muted);
+        subtitle.Height = 30;
         _status = Label("Buscando interfaz ASUS...", 12, Accent, FontStyle.Bold);
         _status.Dock = DockStyle.Bottom;
+        top.Controls.Add(subtitle);
+        top.Controls.Add(brand);
         top.Controls.Add(_status);
 
         var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(20, 6, 20, 8) };
-        center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-        center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
-        _fanPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true,
-            FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(12), BackColor = PanelColor };
+        center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
+        center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        _fanPanel = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            Padding = new Padding(12),
+            BackColor = PanelColor
+        };
         center.Controls.Add(_fanPanel, 0, 0);
+
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 155));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 236));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var card = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Padding = new Padding(14) };
-        _info = Label("Modelo: pendiente", 10, Foreground);
+        _modelLine = Label("Modelo: pendiente", 10, Foreground);
+        _biosLine = Label("BIOS: pendiente", 10, Muted);
+        _fanCountLine = Label("Ventiladores: pendiente", 10, Muted);
+        _mode = Label("Modo: pendiente", 11, Foreground, FontStyle.Bold);
+        _watchdogState = Label("Watchdog: inactivo", 10, Muted);
         _temperature = Label("CPU: pendiente", 13, Accent, FontStyle.Bold);
-        _info.Dock = DockStyle.Top;
-        _temperature.Dock = DockStyle.Top;
-        card.Controls.Add(Label("PWM pedido NO equivale a RPM medidas", 9, Muted));
-        card.Controls.Add(_temperature);
-        card.Controls.Add(_info);
+        _lastUpdate = Label("Última lectura: --:--:--", 9, Muted);
+        foreach (var control in new Control[] { _lastUpdate, _watchdogState, _mode, _temperature, _fanCountLine, _biosLine, _modelLine })
+            card.Controls.Add(control);
+        card.Controls.Add(Label("PWM pedido NO equivale a RPM medidas", 9, Warning));
         right.Controls.Add(card, 0, 0);
-        _diagnostic = new TextBox { Dock = DockStyle.Fill, ReadOnly = true, Multiline = true,
-            ScrollBars = ScrollBars.Vertical, BackColor = PanelColor, ForeColor = Foreground,
-            BorderStyle = BorderStyle.FixedSingle, Font = new Font("Consolas", 9) };
+        _diagnostic = new TextBox
+        {
+            Dock = DockStyle.Fill,
+            ReadOnly = true,
+            Multiline = true,
+            ScrollBars = ScrollBars.Vertical,
+            BackColor = PanelColor,
+            ForeColor = Foreground,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Consolas", 9)
+        };
         right.Controls.Add(_diagnostic, 0, 1);
         center.Controls.Add(right, 1, 0);
 
-        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 140, Padding = new Padding(22, 12, 10, 8) };
-        _hundred = Button("TODOS 100%", Accent, (_, _) => All(100));
-        _eighty = Button("TODOS 80%", Color.FromArgb(43, 61, 81), (_, _) => All(80));
-        _apply = Button("APLICAR INDIVIDUAL", Color.FromArgb(43, 61, 81), (_, _) => Apply());
-        _automatic = Button("VOLVER A BIOS", Color.FromArgb(116, 59, 63), (_, _) => Restore());
-        footer.Controls.AddRange(new Control[] { _hundred, _eighty, _apply, _automatic,
-            Label("70–100% manual · Primeras pruebas solo supervisadas · Si falla, devuelve control a BIOS.", 9, Muted) });
+        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 148, Padding = new Padding(22, 12, 10, 8) };
+        _hundred = Button("TODOS 100%", Accent, Color.FromArgb(11, 40, 38), (_, _) => All(100));
+        _eighty = Button("TODOS 80%", ButtonNeutral, Color.White, (_, _) => All(80));
+        _apply = Button("APLICAR INDIVIDUAL", ButtonNeutral, Color.White, (_, _) => Apply());
+        _automatic = Button("VOLVER A BIOS", Color.FromArgb(116, 59, 63), Color.White, (_, _) => Restore());
+        footer.Controls.AddRange(new Control[]
+        {
+            _hundred, _eighty, _apply, _automatic,
+            Label("70–100% manual · pruebas solo supervisadas · ante cualquier anomalía pulsa VOLVER A BIOS.", 9, Muted)
+        });
 
         Controls.Add(center);
         Controls.Add(footer);
@@ -86,22 +114,38 @@ internal sealed class MainForm : Form
         ToggleControls(false);
         _timer = new System.Windows.Forms.Timer { Interval = 2000 };
         _timer.Tick += async (_, _) => await PollAsync();
-        Shown += (_, _) => InitializeHardware();
+        Shown += async (_, _) => await InitializeHardwareAsync();
         FormClosing += (_, _) => CloseHardware();
         SystemEvents.PowerModeChanged += OnPower;
     }
 
     private static Label Label(string text, float size, Color color, FontStyle style = FontStyle.Regular) =>
-        new() { Text = text, AutoSize = false, Dock = DockStyle.Top, Height = 37,
-            ForeColor = color, TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", size, style) };
+        new()
+        {
+            Text = text,
+            AutoSize = false,
+            Dock = DockStyle.Top,
+            Height = 30,
+            ForeColor = color,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font("Segoe UI", size, style)
+        };
 
-    private static Button Button(string title, Color background, EventHandler click)
+    private static Button Button(string title, Color background, Color foreground, EventHandler click)
     {
-        var b = new Button { Text = title, Width = title.Contains("INDIVIDUAL") ? 185 : 155, Height = 45,
-            BackColor = background, ForeColor = Color.White, FlatStyle = FlatStyle.Flat, Margin = new Padding(0,0,10,5) };
-        b.FlatAppearance.BorderSize = 0;
-        b.Click += click;
-        return b;
+        var button = new Button
+        {
+            Text = title,
+            Width = title.Contains("INDIVIDUAL") ? 190 : 158,
+            Height = 46,
+            BackColor = background,
+            ForeColor = foreground,
+            FlatStyle = FlatStyle.Flat,
+            Margin = new Padding(0, 0, 10, 5)
+        };
+        button.FlatAppearance.BorderSize = 0;
+        button.Click += click;
+        return button;
     }
 
     private void ToggleControls(bool enabled)
@@ -119,71 +163,100 @@ internal sealed class MainForm : Form
         if (_diagnostic.TextLength > 18000) _diagnostic.Text = _diagnostic.Text[^13000..];
     }
 
-    private void InitializeHardware()
+    private async Task InitializeHardwareAsync()
     {
-        string model = AsusHardware.Model();
-        _info.Text = "Modelo: " + model;
-        Log("Detectado: " + model);
+        if (_initializing) return;
+        _initializing = true;
+        UseWaitCursor = true;
+        _status.Text = "Inicializando interfaz ASUS…";
+        ToggleControls(false);
         try
         {
-            _hardware = new AsusHardware();
-            Log("DLL oficial detectada. Ventiladores: " + _hardware.FanCount);
-            for (int i = 0; i < _hardware.FanCount; i++)
-            {
-                var block = new Panel { Width = 470, Height = 125, BackColor = Color.FromArgb(35, 49, 66), Margin = new Padding(0,0,0,12) };
-                var heading = Label("VENTILADOR " + (i + 1) + " · Índice ASUS " + i, 11, Foreground, FontStyle.Bold);
-                var rpm = Label("RPM: sin lectura", 11, Accent);
-                var percent = Label("100% solicitado", 10, Muted);
-                var slider = new TrackBar { Minimum = 70, Maximum = 100, Value = 100, TickFrequency = 5,
-                    Dock = DockStyle.Bottom, Height = 46, BackColor = block.BackColor };
-                slider.ValueChanged += (_, _) => percent.Text = slider.Value + "% solicitado";
-                block.Controls.Add(slider);
-                block.Controls.Add(percent);
-                block.Controls.Add(rpm);
-                block.Controls.Add(heading);
-                _fanPanel.Controls.Add(block);
-                _rows.Add((slider, rpm, percent));
-            }
-            _fanPanel.Resize += (_, _) =>
-            {
-                foreach (var b in _fanPanel.Controls.OfType<Panel>())
-                    b.Width = Math.Max(350, _fanPanel.ClientSize.Width - 28);
-            };
+            string model = AsusHardware.Model();
+            _modelLine.Text = "Modelo: " + model;
+            _biosLine.Text = "BIOS: " + AsusHardware.BiosVersion();
+            Log("Detectado: " + model);
+
+            AsusHardware backend = await Task.Run(() => new AsusHardware());
+            if (_closing) { backend.Dispose(); return; }
+            _session = new FanSession(backend);
+            _fanCountLine.Text = "Ventiladores detectados: " + backend.FanCount;
+            BuildFanRows(backend.FanCount);
+            Log("DLL OEM cargada. Ventiladores: " + backend.FanCount);
+            _status.Text = "ASUS conectado · BIOS automático";
+            _mode.Text = "Modo: BIOS (automático)";
             ToggleControls(true);
-            _status.Text = "BIOS · automático (sin control manual)";
             _timer.Start();
-            _ = PollAsync();
+            await PollAsync();
         }
         catch (Exception ex)
         {
             _status.Text = "NO COMPATIBLE / DRIVER NO DISPONIBLE";
             Log(ex.GetType().Name + ": " + ex.Message);
         }
+        finally
+        {
+            _initializing = false;
+            UseWaitCursor = false;
+        }
+    }
+
+    private void BuildFanRows(int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            var block = new Panel { Width = 500, Height = 128, BackColor = BlockColor, Margin = new Padding(0, 0, 0, 12) };
+            var heading = Label("VENTILADOR " + (i + 1) + " · índice ASUS " + i, 11, Foreground, FontStyle.Bold);
+            var rpm = Label("RPM medidas: sin lectura", 11, Accent);
+            var percent = Label("100% solicitado", 10, Muted);
+            var slider = new TrackBar
+            {
+                Minimum = 70,
+                Maximum = 100,
+                Value = 100,
+                TickFrequency = 5,
+                Dock = DockStyle.Bottom,
+                Height = 46,
+                BackColor = block.BackColor
+            };
+            slider.ValueChanged += (_, _) => percent.Text = slider.Value + "% solicitado (no confirmado)";
+            block.Controls.Add(slider);
+            block.Controls.Add(percent);
+            block.Controls.Add(rpm);
+            block.Controls.Add(heading);
+            _fanPanel.Controls.Add(block);
+            _rows.Add((slider, rpm, percent));
+        }
+        _fanPanel.Resize += (_, _) =>
+        {
+            foreach (var block in _fanPanel.Controls.OfType<Panel>())
+                block.Width = Math.Max(380, _fanPanel.ClientSize.Width - 28);
+        };
     }
 
     private void All(int value)
     {
-        foreach (var r in _rows) r.Slider.Value = value;
+        foreach (var row in _rows) row.Slider.Value = value;
         Apply();
     }
 
     private void Apply()
     {
-        if (_hardware == null || _rows.Count != _hardware.FanCount) return;
+        if (_session == null || _rows.Count != _session.FanCount) return;
+        if (!_manualConfirmed && !ConfirmManual()) return;
         try
         {
-            if (_watchdog == null || _watchdog.HasExited)
-            {
-                _watchdog?.Dispose();
-                _watchdog = Watchdog.Start(); // Start before touching the controller.
-                if (_watchdog.HasExited) throw new InvalidOperationException("Watchdog no disponible");
-            }
-            _baseline = _rows.Select(r => int.TryParse(r.Rpm.Tag?.ToString(), out var rpm) ? rpm : -1).ToArray();
+            EnsureWatchdog();
+            int[] baseline = _rows
+                .Select(r => int.TryParse(r.Rpm.Tag?.ToString(), out var rpm) ? rpm : -1)
+                .ToArray();
             int[] targets = _rows.Select(r => r.Slider.Value).ToArray();
-            _hardware.Apply(targets);
-            _changedAt = DateTime.UtcNow;
-            _status.Text = "MANUAL SOLICITADO · " + string.Join(" / ", targets.Select(t => t + "%"));
-            Log("PWM enviado. Validar RPM reales; no significa velocidad confirmada.");
+            _session.Apply(targets, baseline);
+            string requested = string.Join(" / ", targets.Select(t => t + "%"));
+            _mode.Text = "Modo: MANUAL · " + requested;
+            _status.Text = "Control manual SOLICITADO · validar RPM";
+            UpdateWatchdogState();
+            Log("PWM solicitado (" + requested + "). Validar RPM reales; no significa velocidad confirmada.");
         }
         catch (Exception ex)
         {
@@ -192,14 +265,44 @@ internal sealed class MainForm : Form
         }
     }
 
+    private bool ConfirmManual()
+    {
+        bool onPower = SystemInformation.PowerStatus.PowerLineStatus == PowerLineStatus.Online;
+        string power = onPower ? "Energía: conectado a la red eléctrica." : "ATENCIÓN: funcionando con batería.";
+        var result = MessageBox.Show(this,
+            "Vas a habilitar control manual de ventiladores (70–100%).\n\n" + power +
+            "\n\n- Nadie más debe controlar los ventiladores (MyASUS, Armoury Crate).\n" +
+            "- Vigila RPM y ruido; usa VOLVER A BIOS ante cualquier anomalía.\n\n¿Continuar?",
+            "Confirmar control manual", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+        if (result == DialogResult.Yes) _manualConfirmed = true;
+        return _manualConfirmed;
+    }
+
+    private void EnsureWatchdog()
+    {
+        if (_watchdog == null || _watchdog.HasExited)
+        {
+            _watchdog?.Dispose();
+            _watchdog = Watchdog.Start(); // Start before touching the controller.
+            if (_watchdog.HasExited) throw new InvalidOperationException("Watchdog no disponible");
+        }
+    }
+
+    private void UpdateWatchdogState()
+    {
+        bool alive = _watchdog != null && !_watchdog.HasExited;
+        _watchdogState.Text = alive ? "Watchdog: activo (PID " + _watchdog!.Id + ")" : "Watchdog: inactivo";
+        _watchdogState.ForeColor = alive ? Accent : Muted;
+    }
+
     private void Restore()
     {
-        if (_hardware == null) return;
+        if (_session == null) return;
         try
         {
-            _hardware.Restore();
-            _baseline = null;
-            _status.Text = "BIOS · automático";
+            _session.Restore();
+            _mode.Text = "Modo: BIOS (automático)";
+            _status.Text = "ASUS conectado · BIOS automático";
             Log("Restauración BIOS solicitada.");
         }
         catch (Exception ex)
@@ -207,34 +310,44 @@ internal sealed class MainForm : Form
             _status.Text = "ERROR RESTAURANDO BIOS";
             Log("FALLO RESTAURACIÓN: " + ex.Message);
         }
+        UpdateWatchdogState();
     }
 
     private async Task PollAsync()
     {
-        if (_polling || _closing || _hardware == null) return;
+        if (_polling || _closing || _session == null) return;
         _polling = true;
         try
         {
-            FanReading snapshot = await Task.Run(() => _hardware.Read());
-            if (_closing || IsDisposed) return;
-            for (int i = 0; i < snapshot.Rpms.Length; i++)
+            FanReading snapshot = await Task.Run(() => _session.Read());
+            if (_closing || IsDisposed || _session == null) return;
+            for (int i = 0; i < snapshot.Rpms.Length && i < _rows.Count; i++)
             {
                 _rows[i].Rpm.Text = "RPM medidas: " + snapshot.Rpms[i].ToString("N0");
                 _rows[i].Rpm.Tag = snapshot.Rpms[i];
             }
-            _temperature.Text = snapshot.Temperature is int v ? "CPU: " + v + " °C" : "CPU: sin lectura OEM";
-            if (_hardware.Manual && DateTime.UtcNow - _changedAt > TimeSpan.FromSeconds(8) && snapshot.Rpms.Any(v => v <= 0))
+            _temperature.Text = snapshot.Temperature is int value ? "CPU: " + value + " °C" : "CPU: sin lectura OEM";
+            _lastUpdate.Text = "Última lectura: " + DateTime.Now.ToString("HH:mm:ss");
+
+            ControlEvent evt = _session.Evaluate(snapshot);
+            switch (evt)
             {
-                Log("RPM cero o inválidas en modo manual: restauración preventiva.");
-                Restore();
-            }
-            else if (_hardware.Manual && _baseline != null && DateTime.UtcNow - _changedAt > TimeSpan.FromSeconds(10))
-            {
-                bool raised = snapshot.Rpms.Where((rpm, index) =>
-                    index < _baseline.Length && FanPolicy.Increased(_baseline[index], rpm)).Any();
-                Log(raised ? "Confirmación: incremento de RPM medido." :
-                    "NO CONFIRMADO: no se observa aumento claro de RPM; firmware podría ignorar la orden.");
-                _baseline = null;
+                case ControlEvent.Reapplied:
+                    Log("PWM manual reaplicado para mantener el control.");
+                    break;
+                case ControlEvent.ConfirmedRaised:
+                    Log("Confirmación: incremento de RPM medido tras la orden manual.");
+                    _status.Text = "MANUAL · respuesta de RPM confirmada";
+                    break;
+                case ControlEvent.NotConfirmed:
+                    Log("NO CONFIRMADO: no se observa aumento claro de RPM; el firmware podría ignorar la orden.");
+                    _status.Text = "MANUAL · respuesta NO confirmada";
+                    break;
+                case ControlEvent.PreventiveRestore:
+                    Log("RPM cero o inválidas en modo manual: restauración preventiva a BIOS.");
+                    _mode.Text = "Modo: BIOS (automático)";
+                    UpdateWatchdogState();
+                    break;
             }
         }
         catch (Exception ex)
@@ -248,17 +361,28 @@ internal sealed class MainForm : Form
     private void OnPower(object? sender, PowerModeChangedEventArgs e)
     {
         if (e.Mode != PowerModes.Suspend || _closing || !IsHandleCreated) return;
-        try { BeginInvoke((Action)(() => Restore())); }
+        try { BeginInvoke((Action)(AdjustWatchdogAfterResume)); }
         catch (InvalidOperationException) { }
+    }
+
+    private void AdjustWatchdogAfterResume()
+    {
+        Restore();
+        if (_watchdog != null && _watchdog.HasExited)
+        {
+            _watchdog.Dispose();
+            _watchdog = null;
+            UpdateWatchdogState();
+        }
     }
 
     private void CloseHardware()
     {
         _timer.Stop();
         SystemEvents.PowerModeChanged -= OnPower;
-        try { _hardware?.Restore(); } catch (Exception ex) { Log("Fallo al cerrar: " + ex.Message); }
+        try { _session?.Restore(); } catch (Exception ex) { Log("Fallo al restaurar al cerrar: " + ex.Message); }
         _closing = true;
-        try { _hardware?.Dispose(); } catch { }
+        try { _session?.Dispose(); } catch { }
         _watchdog?.Dispose(); // Watchdog waits for this process to exit, then restores again.
         _timer.Dispose();
     }
