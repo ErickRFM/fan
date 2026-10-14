@@ -1,5 +1,15 @@
 # Historial
 
+## 0.4.0 — Multibackend ASUS, telemetría ATKACPI y perfiles (rama `feat/v04-asus-acpi-hardware-integration`)
+- **Nuevo backend ATKACPI (solo lectura + perfiles):** abre `\\.\ATKACPI` e invoca los métodos `DSTS`/`DEVS` (IOCTL `0x0022240C`). En el M3500QC físico **lee RPM reales** de CPU y GPU (`0x00110013`/`0x00110014`) que, con la unidad de 100 RPM, corresponden a ~4400–6100 (CPU) y ~3800–4000 (GPU).
+- **Backend suplementario de temperatura:** `AcpiThermalZoneTelemetry` lee la zona térmica ACPI vía WMI (`MSAcpi_ThermalZoneTemperature`), etiquetada como temperatura de zona aproximada (no de núcleo). Requiere elevación.
+- **Arquitectura multibackend:** `IFanTelemetryProvider` / `IFanControlBackend`, `FanCapabilities`, `TelemetrySnapshot` y `FanBackendManager` (combina RPM + temperaturas y expone capacidades). El backend HealthyTable/`AsusWinIO64` se conserva como proveedor de control PWM.
+- **Control de perfiles verificado:** `AsusAcpiControlBackend` cambia el modo VivoBook (`0x00110019`) y **confirma por lectura posterior**. Curvas y PWM directo se reportan como **no soportados** en este modelo (`0x00110024`/`0x00110025` = `-65536`).
+- **Hallazgo:** `PerformanceMode` (`0x00120075`) y las temperaturas ATKACPI no están soportados en el M3500QC; solo el modo VivoBook. Documentado en `docs/ASUS-BACKENDS.md`.
+- **CLI:** `--hardware-diagnose` (probe multibackend de solo lectura, con volcado de valores RAW) y `--set-profile <Perfil>` (escritura verificada). El diagnóstico sigue sin escribir nada.
+- **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
+- **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
+
 ## 0.3.0 — Validación Windows y arquitectura (rama `feat/windows-hardware-validation-v03`)
 - **Diagnóstico físico (M3500QC, elevado):** modelo/BIOS/DLL detectados correctamente; `HealthyTable_FanCounts()` y `FanRPM()` devuelven `-1`. El driver de kernel `AsusSAIO` está en estado `Stop Pending`/`Degraded`, coincidiendo con la regresión conocida de `AsusWinIO64.dll`. El control manual queda bloqueado a nivel de driver ASUS; no se modificaron drivers ni el EC. Ver `docs/HARDWARE-TEST.md` y `docs/QA.md`.
 - **Mensaje de error accionable** cuando la API OEM devuelve un conteo inválido, con pasos seguros (revisar MyASUS Fan Diagnosis, reiniciar, revertir driver).
