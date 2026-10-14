@@ -1,3 +1,10 @@
+## v0.6.0 — Auditoría de interoperabilidad y seguridad (en revisión)
+- Guardas de modelo en ATKACPI y CLI.
+- Handles por operación para evitar cierres cruzados durante sondeo/cambio de perfil.
+- Detección de errores reales en capacidades; lectura no equivale a escritura.
+- Limpieza de handles en diagnóstico y bloqueo de perfiles durante PWM manual.
+- Pruebas de política ampliadas; ver CI.
+
 ## v0.5.0 — Claridad de control ASUS y lectura CPU/GPU (en revisión)
 - Tarjetas de telemetría CPU y GPU cuando HealthyTable está indisponible.
 - PWM no disponible visualmente deshabilitado; mensaje de diagnóstico y tooltips.

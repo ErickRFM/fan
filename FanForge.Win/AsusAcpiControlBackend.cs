@@ -3,119 +3,108 @@ using FanForge.Core;
 namespace FanForge;
 
 /// <summary>
-/// Read/write backend over ASUS ATKACPI. On VivoBook-class hardware only performance-mode
-/// switching is exposed; dedicated fan curves and direct PWM are reported unsupported.
-/// All writes are verified by reading the endpoint back.
+/// VivoBook ATKACPI: read RPM and select supported ASUS thermal profiles.
+/// This is NOT a direct fan-PWM/curve control backend.
+/// Native handles are method-local so concurrent probes and profile changes cannot close
+/// one another's handles. Firmware calls themselves remain best-effort.
 /// </summary>
 internal sealed class AsusAcpiControlBackend : IFanControlBackend, IFanTelemetryProvider, IDisposable
 {
     public string Name => "AsusACPI (ATKACPI)";
-
-    private IntPtr _handle;
     private bool _disposed;
 
-    public async Task<FanCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken)
-    {
-        return await Task.Run(() =>
+    public Task<FanCapabilities> GetCapabilitiesAsync(CancellationToken cancellationToken) =>
+        Task.Run(() =>
         {
-            bool vivo = DeviceGet(AsusAcpiNative.VivoBookMode) >= 0;
-            bool cpuFan = DeviceGet(AsusAcpiNative.CPU_Fan) >= 0;
-            bool gpuFan = DeviceGet(AsusAcpiNative.GPU_Fan) >= 0;
-            bool curves = DeviceGet(AsusAcpiNative.DevsCPUFanCurve) >= 0;
-            return new FanCapabilities(
-                TelemetryState.ReadOnly,
-                cpuFan,
-                gpuFan,
-                false,
-                vivo,
-                curves,
-                false,
-                false);
+            ThrowIfDisposed();
+            cancellationToken.ThrowIfCancellationRequested();
+            bool model = FanPolicy.SupportedModel(AsusHardware.Model());
+            if (!AsusAcpiNative.TryOpen(out var handle))
+                return new FanCapabilities(TelemetryState.DriverError, false, false, false,
+                    false, false, false, false);
+            try
+            {
+                bool cpu = SafeRead(handle, AsusAcpiNative.CPU_Fan) >= 0;
+                bool gpu = SafeRead(handle, AsusAcpiNative.GPU_Fan) >= 0;
+                bool modes = model && SafeRead(handle, AsusAcpiNative.VivoBookMode) >= 0;
+                // A readable curve endpoint is not proof that this implementation can write curves.
+                return new FanCapabilities(
+                    cpu || gpu ? TelemetryState.ReadOnly : TelemetryState.Unsupported,
+                    cpu, gpu, false, modes, false, false, modes);
+            }
+            finally { AsusAcpiNative.Close(handle); }
         }, cancellationToken);
-    }
 
     public Task<TelemetrySnapshot> ReadAsync(CancellationToken cancellationToken) =>
-        ReadCoreAsync(cancellationToken);
-
-    private async Task<TelemetrySnapshot> ReadCoreAsync(CancellationToken cancellationToken)
-    {
-        return await Task.Run(() =>
+        Task.Run(() =>
         {
-            var rpms = new List<FanRpm>(2);
-            if (Open())
+            ThrowIfDisposed();
+            cancellationToken.ThrowIfCancellationRequested();
+            var rpm = new List<FanRpm>(2);
+            if (AsusAcpiNative.TryOpen(out var handle))
             {
                 try
                 {
-                    rpms.Add(new FanRpm(FanType.Cpu, AsusAcpiTelemetry.DecodeRpm(AsusAcpiNative.DeviceGet(_handle, AsusAcpiNative.CPU_Fan))));
-                    rpms.Add(new FanRpm(FanType.Gpu, AsusAcpiTelemetry.DecodeRpm(AsusAcpiNative.DeviceGet(_handle, AsusAcpiNative.GPU_Fan))));
+                    rpm.Add(new FanRpm(FanType.Cpu, AsusAcpiTelemetry.DecodeRpm(
+                        SafeRead(handle, AsusAcpiNative.CPU_Fan))));
+                    rpm.Add(new FanRpm(FanType.Gpu, AsusAcpiTelemetry.DecodeRpm(
+                        SafeRead(handle, AsusAcpiNative.GPU_Fan))));
                 }
-                finally { Close(); }
+                finally { AsusAcpiNative.Close(handle); }
             }
-            return new TelemetrySnapshot(rpms, new TemperatureReading(null, null), DateTimeOffset.UtcNow);
+            return new TelemetrySnapshot(rpm, new TemperatureReading(null, null), DateTimeOffset.UtcNow);
         }, cancellationToken);
-    }
 
     public Task<ControlResult> ApplyAsync(FanControlRequest request, CancellationToken cancellationToken) =>
-        Task.Run(() => ApplyCore(request), cancellationToken);
+        Task.Run(() => ApplyCore(request, cancellationToken), cancellationToken);
 
-    private ControlResult ApplyCore(FanControlRequest request)
+    private ControlResult ApplyCore(FanControlRequest request, CancellationToken ct)
     {
+        ThrowIfDisposed();
+        ct.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(request);
         if (request.PwmPercentages is { Count: > 0 } || request.FanCurves is { Count: > 0 })
-            return new ControlResult(false, "Curvas PWM no soportadas por ATKACPI en este modelo.");
-
-        // Deliberately reject unsupported Manual/Max/Auto: this firmware offers three profiles.
+            return new ControlResult(false, "Este backend ATKACPI no admite control PWM ni curvas.");
+        if (!FanPolicy.SupportedModel(AsusHardware.Model()))
+            return new ControlResult(false, "Escritura bloqueada: modelo diferente de M3500QC.");
         int? target = FanPolicy.VivoBookProfileWireMode(request.Profile);
         if (target is null)
-            return new ControlResult(false, "Perfil no disponible: este equipo solo admite Silencioso, Estándar y Rendimiento.");
-
-        if (!Open())
+            return new ControlResult(false, "Perfil no admitido: solo Silencioso, Estándar y Rendimiento.");
+        if (!AsusAcpiNative.TryOpen(out var handle))
             return new ControlResult(false, "No se pudo abrir ATKACPI.");
 
         try
         {
-            int before = AsusAcpiNative.DeviceGet(_handle, AsusAcpiNative.VivoBookMode);
+            int before = AsusAcpiNative.DeviceGet(handle, AsusAcpiNative.VivoBookMode);
             if (before < 0)
-                return new ControlResult(false, "VivoBookMode no disponible: se evitó la escritura.");
-            int status = AsusAcpiNative.DeviceSet(_handle, AsusAcpiNative.VivoBookMode, target.Value);
-            int after = AsusAcpiNative.DeviceGet(_handle, AsusAcpiNative.VivoBookMode);
+                return new ControlResult(false, "VivoBookMode no disponible: sin escritura.");
+            ct.ThrowIfCancellationRequested();
+            int status = AsusAcpiNative.DeviceSet(handle, AsusAcpiNative.VivoBookMode, target.Value);
+            int after = AsusAcpiNative.DeviceGet(handle, AsusAcpiNative.VivoBookMode);
             bool verified = FanPolicy.VivoBookProfileConfirmed(after, target.Value);
             return new ControlResult(verified,
-                $"Perfil {request.Profile}: raw {before} -> {after}, status={status}, verificado={verified}. No indica PWM fijo.");
+                $"Perfil {request.Profile}: raw {before} -> {after}, status={status}, lectura confirmada={verified}. No es PWM fijo.");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             return new ControlResult(false, "Error de comunicación ATKACPI: " + ex.Message);
         }
-        finally { Close(); }
+        finally { AsusAcpiNative.Close(handle); }
+    }
+
+    private static int SafeRead(IntPtr handle, uint endpoint)
+    {
+        try { return AsusAcpiNative.DeviceGet(handle, endpoint); }
+        catch { return -65536; }
     }
 
     public Task<ControlResult> RestoreAutomaticAsync(CancellationToken cancellationToken) =>
         ApplyAsync(new FanControlRequest(FanProfile.Standard, null, null), cancellationToken);
 
-    bool Open()
+    private void ThrowIfDisposed()
     {
-        if (_handle != IntPtr.Zero) return true;
-        return AsusAcpiNative.TryOpen(out _handle);
+        if (_disposed) throw new ObjectDisposedException(nameof(AsusAcpiControlBackend));
     }
 
-    void Close()
-    {
-        if (_handle == IntPtr.Zero) return;
-        AsusAcpiNative.Close(_handle);
-        _handle = IntPtr.Zero;
-    }
-
-    int DeviceGet(uint id)
-    {
-        if (!Open()) return -1;
-        try { return AsusAcpiNative.DeviceGet(_handle, id); }
-        catch { Close(); return -1; }
-    }
-
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-        Close();
-    }
+    public void Dispose() => _disposed = true;
 }

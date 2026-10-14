@@ -92,3 +92,11 @@ La selección de Silencioso/Estándar/Rendimiento escribe solamente en `VivoBook
 La interfaz muestra tarjetas CPU/GPU basadas en lecturas ACPI cuando HealthyTable está degradado y deshabilita los controles PWM con color atenuado y explicación. `VOLVER A ASUS` restaura Estándar cuando se están usando perfiles, o devuelve control BIOS cuando hay una sesión PWM válida.
 
 **Validación física pendiente:** tras pulsar perfiles, observar en ProArt la lectura de modo y RPM. No iniciar manual/100% sin que HealthyTable sea confiable y se haya probado la restauración.
+
+
+## Auditoría de interoperabilidad (v0.6, software)
+- Lectura de RPM y control de perfiles abren **handles nativos independientes por operación**. Ya no comparten un handle que pudiera cerrarse mientras otro hilo lo usa.
+- El backend de escritura rechaza modelos distintos de M3500QC, incluso desde `--set-profile`; únicamente acepta Silencioso, Estándar y Rendimiento.
+- Los errores de apertura de ATKACPI se reportan como `DriverError`, no como una capacidad de telemetría soportada.
+- Un endpoint de curva legible no se anuncia como control de curva implementado.
+- Las pruebas de hardware siguen pendientes: las llamadas `DeviceIoControl` a firmware no son cancelables de forma garantizada.
