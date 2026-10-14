@@ -17,6 +17,11 @@
 - **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
 - **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
 
+## 0.4.5 — Watchdog bidireccional
+- **Core:** `WatchdogPolicy` clasifica el estado (inactivo/activo/perdido) y decide si un watchdog perdido durante control manual obliga a restaurar BIOS.
+- **Win:** el sondeo comprueba el watchdog cada ciclo; si desaparece durante control manual, restaura a BIOS y avisa (el propio watchdog ya restaura si muere la UI).
+- **Pruebas:** 108 comprobaciones (antes 99).
+
 ## 0.4.4 — Verificación de la biblioteca OEM
 - **Core:** `OemLibraryPolicy` valida versión mínima y firmante Authenticode ASUS/ASUSTeK, con descripción legible; pura y testeable.
 - **Win:** `OemLibraryVerifier` lee versión y firmante de `AsusWinIO64.dll`; `AsusHardware` rechaza versiones no reconocidas y expone la firma, que el dashboard registra.

@@ -109,6 +109,7 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 | `FanForge.Core/TelemetryHistory.cs` | Búfer circular acotado de muestras para gráficas |
 | `FanForge.Core/ControlConflicts.cs` | Detección de herramientas ASUS que compiten por el control |
 | `FanForge.Core/OemLibraryPolicy.cs` | Validación (versión/firmante) de la DLL OEM |
+| `FanForge.Core/WatchdogPolicy.cs` | Estado bidireccional del watchdog y restauración segura |
 | `FanForge.Win/AsusNative.cs` | Interop de exports ASUS, carga de DLL OEM |
 | `FanForge.Win/AsusHardware.cs` | Lectura, escritura y restauración serializadas (I/O nativo) |
 | `FanForge.Win/AsusAcpiNative.cs` | Interop ATKACPI (`DeviceGet`/`DeviceSet`, métodos y constantes) |

@@ -447,10 +447,14 @@ internal sealed class MainForm : Form
 
     private void UpdateWatchdogState()
     {
-        bool alive = _watchdog != null && !_watchdog.HasExited;
-        _watchdogState.Text = alive ? "Watchdog: activo (PID " + _watchdog!.Id + ")" : "Watchdog: inactivo";
-        _watchdogState.ForeColor = alive ? Accent : Muted;
+        var health = CurrentWatchdogHealth();
+        _watchdogState.Text = WatchdogPolicy.Describe(health, _watchdog?.Id);
+        _watchdogState.ForeColor = health == WatchdogHealth.Active ? Accent
+            : health == WatchdogHealth.Lost ? Danger : Muted;
     }
+
+    private WatchdogHealth CurrentWatchdogHealth() =>
+        WatchdogPolicy.Assess(_watchdog != null, _watchdog?.HasExited ?? false);
 
     private async Task ReturnToAsusAsync()
     {
@@ -521,6 +525,14 @@ internal sealed class MainForm : Form
         _polling = true;
         try
         {
+            if (WatchdogPolicy.ShouldRestoreOnLost(CurrentWatchdogHealth(), _session?.Manual ?? false))
+            {
+                Log("Watchdog PERDIDO durante control manual: restauración de seguridad a BIOS.");
+                Restore();
+                _status.Text = "Watchdog perdido · control devuelto a BIOS";
+                return;
+            }
+
             if (_session == null)
             {
                 TelemetrySnapshot snap = await Task.Run(() => _telemetry!.ReadBestAsync(CancellationToken.None));
