@@ -71,7 +71,7 @@ Check(!OemLibraryPolicy.TrustedSigner("CN=Evil Corp"), "rejects foreign signer")
 Check(!OemLibraryPolicy.TrustedSigner(""), "rejects empty signer");
 Check(OemLibraryPolicy.TrustedSigner(null) == false, "rejects null signer");
 Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "CN=ASUSTeK Computer Inc.").Contains("firmante ASUS"), "describe names asus signer");
-Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "Evil Corp").Contains("no ASUS"), "describe flags foreign signer");
+Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "CN=Evil Corp").Contains("no autorizado"), "describe flags foreign signer");
 Check(OemLibraryPolicy.Describe(new Version(0, 0, 0, 0), "CN=ASUS").Contains("no soportada"), "describe flags unsupported version");
 Check(!OemLibraryPolicy.TrustedSigner("CN=Untrusted ASUS Drivers"), "reject signer containing ASUS as substring");
 Check(!OemLibraryPolicy.TrustedSigner("O=ASUSTeK Computer Inc., CN=Fake ASUS LLC"), "reject fake ASUS CN");
