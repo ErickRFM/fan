@@ -93,6 +93,24 @@ Check(mergedFallback.Temperatures.GpuCelsius == 70, "merge keeps earlier tempera
 Check(TelemetryMerge.Merge(Array.Empty<TelemetrySnapshot>()).Rpms.Count == 0, "merge of nothing is empty");
 Check(TelemetryMerge.Merge(new[] { acpi }).Temperatures.CpuCelsius is null, "merge without temperature yields null");
 
+// ---- Telemetry history: bounded ring buffer ----
+var history = new TelemetryHistory(3);
+for (int i = 0; i < 5; i++)
+    history.Add(new TelemetrySnapshot(
+        new[] { new FanRpm(FanType.Cpu, 1000 + i), new FanRpm(FanType.Gpu, -1) },
+        new TemperatureReading(40 + i, null), DateTimeOffset.UnixEpoch.AddSeconds(i)));
+Check(history.Count == 3, "history trims to capacity");
+Check(history.Points[0].CpuRpm == 1002 && history.Points[2].CpuRpm == 1004, "history keeps newest in order");
+Check(history.Points[0].CpuCelsius == 42, "history maps cpu temperature");
+Check(history.Latest?.CpuRpm == 1004, "history latest is newest");
+Check(history.Points.All(p => p.GpuRpm is null), "history drops invalid rpm");
+var mixed = new TelemetryHistory(2);
+mixed.Add(new TelemetrySnapshot(new[] { new FanRpm(FanType.Gpu, 3800) }, new TemperatureReading(null, 65), DateTimeOffset.UnixEpoch));
+mixed.Add(new TelemetrySnapshot(Array.Empty<FanRpm>(), new TemperatureReading(null, null), DateTimeOffset.UnixEpoch));
+Check(mixed.Latest?.GpuRpm is null && mixed.Points[0].GpuCelsius == 65, "history keeps only readable values");
+mixed.Clear();
+Check(mixed.Count == 0 && mixed.Latest is null, "history clear empties buffer");
+
 // ---- Session: manual state machine with a mock controller ----
 var time = new ManualTime();
 var backend = new FakeBackend(2, new[] { 1000, 1000 });
