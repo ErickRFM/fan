@@ -82,3 +82,13 @@ los botones de perfil.
 - Solo lectura por defecto; las escrituras se validan por lectura posterior.
 - No se escriben registros EC arbitrarios ni se modifican drivers, firmware o BIOS.
 - No se declara éxito físico sin medición observada.
+
+## Control verificable e interfaz (v0.5)
+
+El modo `Rendimiento` corresponde al máximo **perfil ASUS documentado para este M3500QC**, pero **NO** significa una orden de ventiladores al 100 %. El botón de `Perfil Máximo` se eliminó para no duplicar el perfil Rendimiento. `Auto`, `Manual` y `Max` no son comandos válidos del backend ATKACPI.
+
+La selección de Silencioso/Estándar/Rendimiento escribe solamente en `VivoBookMode` cuando la lectura inicial es válida; comprueba lectura posterior positiva y el modo esperado. Un error o respuesta incompleta de DeviceIoControl se reporta, no se interpreta como modo Estándar.
+
+La interfaz muestra tarjetas CPU/GPU basadas en lecturas ACPI cuando HealthyTable está degradado y deshabilita los controles PWM con color atenuado y explicación. `VOLVER A ASUS` restaura Estándar cuando se están usando perfiles, o devuelve control BIOS cuando hay una sesión PWM válida.
+
+**Validación física pendiente:** tras pulsar perfiles, observar en ProArt la lectura de modo y RPM. No iniciar manual/100% sin que HealthyTable sea confiable y se haya probado la restauración.

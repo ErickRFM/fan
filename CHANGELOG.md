@@ -1,3 +1,10 @@
+## v0.5.0 — Claridad de control ASUS y lectura CPU/GPU (en revisión)
+- Tarjetas de telemetría CPU y GPU cuando HealthyTable está indisponible.
+- PWM no disponible visualmente deshabilitado; mensaje de diagnóstico y tooltips.
+- Eliminado falso Perfil Máximo (alias de Rendimiento); retorno ASUS mediante perfil Estándar.
+- Validación de confirmación de cambios de perfil; rechazo de perfiles no soportados y respuestas IOCTL incompletas.
+- Sin escrituras nuevas a EC ni control PWM físico habilitado; validación física pendiente.
+
 # Historial
 
 ## 0.4.0 — Multibackend ASUS, telemetría ATKACPI y perfiles (rama `feat/v04-asus-acpi-hardware-integration`)
@@ -13,7 +20,7 @@
 ## 0.4.2 — Historial de telemetría y mini-gráficas
 - **`TelemetryHistory` en Core:** búfer circular acotado (180 muestras) con valores legibles por punto; testeable sin hardware.
 - **UI:** dos mini-gráficas (`Sparkline`) de temperatura CPU y RPM, con autoescala, alimentadas desde el historial en cada sondeo (sirven tanto la ruta HealthyTable como la ATKACPI).
-- **Pruebas:** 68 comprobaciones (antes 61): recorte a capacidad, orden, mapeo por tipo, descarte de valores no legibles y `Clear`.
+- **Pruebas:** 79 comprobaciones en total (incluye las de perfiles VivoBook de v0.5); las nuevas cubren recorte a capacidad, orden, mapeo por tipo, descarte de valores no legibles y `Clear`.
 
 ## 0.4.1 — Combinación de telemetría testeable
 - **`TelemetryMerge` en Core:** la prioridad entre proveedores (primer RPM válido, relleno de temperatura) deja de depender del hardware y se cubre con pruebas unitarias.

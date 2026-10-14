@@ -111,6 +111,19 @@ Check(mixed.Latest?.GpuRpm is null && mixed.Points[0].GpuCelsius == 65, "history
 mixed.Clear();
 Check(mixed.Count == 0 && mixed.Latest is null, "history clear empties buffer");
 
+// ---- VivoBook profile semantics (no fake MAX fan speed, no success on invalid sentinels) ----
+Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Whisper) == 1, "Whisper wire mode");
+Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Standard) == 0, "Standard wire mode");
+Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Performance) == 2, "Performance wire mode");
+Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Max) is null, "Max unsupported, not performance alias");
+Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Manual) is null, "manual unsupported on VivoBook ACPI");
+Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Auto) is null, "Auto requires explicit restore");
+Check(FanPolicy.VivoBookProfileConfirmed(131074, 2), "positive profile readback verifies");
+Check(FanPolicy.VivoBookProfileConfirmed(0, 0), "valid balanced readback verifies");
+Check(!FanPolicy.VivoBookProfileConfirmed(-65536, 0), "reject failed readback even for balanced");
+Check(!FanPolicy.VivoBookProfileConfirmed(131073, 2), "reject mismatched readback");
+Check(!FanPolicy.VivoBookProfileConfirmed(131075, 3), "reject unsupported profile 3");
+
 // ---- Session: manual state machine with a mock controller ----
 var time = new ManualTime();
 var backend = new FakeBackend(2, new[] { 1000, 1000 });

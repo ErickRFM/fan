@@ -34,7 +34,11 @@ internal sealed class MainForm : Form
     private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _providerLine, _temperature, _lastUpdate;
     private readonly TextBox _diagnostic;
     private readonly Button _hundred, _eighty, _apply, _automatic;
-    private readonly Button _whisper, _standard, _performance, _max;
+    private readonly Button _whisper, _standard, _performance;
+    private readonly ToolTip _tooltips = new();
+    private Label? _acpiCpuRpm, _acpiGpuRpm;
+    private bool _profileSupported;
+    private bool _manualAvailable;
     private readonly System.Windows.Forms.Timer _timer;
     private bool _polling, _closing, _initializing, _manualConfirmed;
     private bool _profileBusy;
@@ -50,17 +54,22 @@ internal sealed class MainForm : Form
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
 
-        var top = new Panel { Dock = DockStyle.Top, Height = 138, Padding = new Padding(22) };
+        // Explicit rows prevent the brand/subtitle/status from overlapping at 125–200% DPI.
+        var top = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top, Height = 166, Padding = new Padding(22, 8, 22, 8),
+            ColumnCount = 1, RowCount = 3
+        };
+        top.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
+        top.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
+        top.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var brand = Label("FANFORGE", 25, Accent, FontStyle.Bold);
-        brand.Dock = DockStyle.Top;
-        brand.Height = 50;
         var subtitle = Label("ASUS VivoBook Pro M3500QC · Control OEM experimental", 10, Muted);
-        subtitle.Height = 30;
         _status = Label("Buscando interfaz ASUS...", 12, Accent, FontStyle.Bold);
-        _status.Dock = DockStyle.Bottom;
-        top.Controls.Add(subtitle);
-        top.Controls.Add(brand);
-        top.Controls.Add(_status);
+        foreach (var item in new[] { brand, subtitle, _status }) item.Dock = DockStyle.Fill;
+        top.Controls.Add(brand, 0, 0);
+        top.Controls.Add(subtitle, 0, 1);
+        top.Controls.Add(_status, 0, 2);
 
         var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(20, 6, 20, 8) };
         center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
@@ -77,7 +86,7 @@ internal sealed class MainForm : Form
         center.Controls.Add(_fanPanel, 0, 0);
 
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 236));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 285));
         right.RowStyles.Add(new RowStyle(SizeType.Absolute, 156));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var card = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Padding = new Padding(14) };
@@ -119,26 +128,34 @@ internal sealed class MainForm : Form
         right.Controls.Add(_diagnostic, 0, 2);
         center.Controls.Add(right, 1, 0);
 
-        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 148, Padding = new Padding(22, 12, 10, 8) };
+        var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 110, Padding = new Padding(22, 12, 10, 8) };
         _hundred = Button("TODOS 100%", Accent, Color.FromArgb(11, 40, 38), (_, _) => All(100));
         _eighty = Button("TODOS 80%", ButtonNeutral, Color.White, (_, _) => All(80));
         _apply = Button("APLICAR INDIVIDUAL", ButtonNeutral, Color.White, (_, _) => Apply());
-        _automatic = Button("VOLVER A BIOS", Color.FromArgb(116, 59, 63), Color.White, (_, _) => Restore());
+        _automatic = Button("VOLVER A ASUS", Color.FromArgb(116, 59, 63), Color.White, async (_, _) => await ReturnToAsusAsync());
         footer.Controls.AddRange(new Control[]
         {
             _hundred, _eighty, _apply, _automatic,
-            Label("70–100% manual · pruebas solo supervisadas · ante cualquier anomalía pulsa VOLVER A BIOS.", 9, Muted)
+            Label("PWM manual solo con driver HealthyTable válido. No confundir porcentaje pedido con RPM.", 9, Muted)
         });
 
-        var profiles = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 62, Padding = new Padding(22, 8, 10, 4) };
+        var profiles = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 106, Padding = new Padding(22, 8, 10, 4), WrapContents = true };
         _whisper = Button("PERFIL SILENCIOSO", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Whisper));
         _standard = Button("PERFIL ESTÁNDAR", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Standard));
         _performance = Button("PERFIL RENDIMIENTO", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Performance));
-        _max = Button("PERFIL MÁXIMO", ButtonNeutral, Color.White, async (_, _) => await ApplyProfile(FanProfile.Max));
         profiles.Controls.AddRange(new Control[]
         {
-            Label("Perfiles ASUS (ATKACPI):", 10, Muted), _whisper, _standard, _performance, _max
+            Label("Perfiles ASUS:", 10, Muted), _whisper, _standard, _performance,
+            new Label
+            {
+                Text = "Rendimiento = perfil más alto detectado, NO velocidad fija al 100%.",
+                AutoSize = true, ForeColor = Warning, Margin = new Padding(6, 13, 0, 0)
+            }
         });
+        _tooltips.SetToolTip(_hundred, "PWM al 100% no disponible: HealthyTable / AsusSAIO no responde.");
+        _tooltips.SetToolTip(_eighty, "PWM manual solo cuando HealthyTable detecte ventiladores válidos.");
+        _tooltips.SetToolTip(_apply, "Este BIOS no expone curvas o PWM directo mediante ATKACPI.");
+        _tooltips.SetToolTip(_automatic, "Con PWM: devolver control a BIOS. Con perfiles: volver a Estándar.");
 
         Controls.Add(center);
         Controls.Add(footer);
@@ -183,18 +200,24 @@ internal sealed class MainForm : Form
 
     private void ToggleControls(bool enabled)
     {
+        _manualAvailable = enabled;
         _hundred.Enabled = enabled;
         _eighty.Enabled = enabled;
         _apply.Enabled = enabled;
-        _automatic.Enabled = enabled;
+        _hundred.BackColor = enabled ? Accent : ButtonNeutral;
+        _hundred.ForeColor = enabled ? Color.FromArgb(11, 40, 38) : Muted;
+        foreach (var control in new[] { _eighty, _apply })
+            control.ForeColor = enabled ? Foreground : Muted;
+        _automatic.Enabled = enabled || (_profileSupported && !_profileBusy);
     }
 
     private void ToggleProfiles(bool enabled)
     {
-        _whisper.Enabled = enabled && !_profileBusy;
-        _standard.Enabled = enabled && !_profileBusy;
-        _performance.Enabled = enabled && !_profileBusy;
-        _max.Enabled = enabled && !_profileBusy;
+        bool active = enabled && _profileSupported && !_profileBusy;
+        _whisper.Enabled = active;
+        _standard.Enabled = active;
+        _performance.Enabled = active;
+        if (!_manualAvailable) _automatic.Enabled = active;
     }
 
     private void Log(string message)
@@ -252,7 +275,8 @@ internal sealed class MainForm : Form
 
             // ACPI profile control is independent from PWM.
             var controlCaps = await _acpiControl.GetCapabilitiesAsync(CancellationToken.None);
-            ToggleProfiles(controlCaps.SupportsProfiles);
+            _profileSupported = controlCaps.SupportsProfiles;
+            ToggleProfiles(true);
             Log("Control ACPI: perfiles=" + controlCaps.SupportsProfiles +
                 " curvas=" + controlCaps.SupportsFanCurves + " pwm=" + controlCaps.SupportsPwmDirect);
 
@@ -264,8 +288,11 @@ internal sealed class MainForm : Form
             }
             else if (_caps?.TelemetryState is TelemetryState.Supported or TelemetryState.ReadOnly)
             {
-                _status.Text = "Telemetría ACPI (solo lectura) + perfiles";
-                _mode.Text = "Modo: ASUS (perfiles)";
+                BuildAcpiReadOnlyCards();
+                _status.Text = "RPM por ATKACPI · control por perfiles ASUS";
+                _mode.Text = _profileSupported
+                    ? "Modo: ASUS · Silencioso / Estándar / Rendimiento"
+                    : "Modo: solo lectura (sin control)";
             }
             else
             {
@@ -286,6 +313,35 @@ internal sealed class MainForm : Form
             _initializing = false;
             UseWaitCursor = false;
         }
+    }
+
+    private void BuildAcpiReadOnlyCards()
+    {
+        _fanPanel.Controls.Clear();
+        _acpiCpuRpm = AddAcpiFanCard("CPU", _caps?.SupportsCpuFan ?? false);
+        _acpiGpuRpm = AddAcpiFanCard("GPU", _caps?.SupportsGpuFan ?? false);
+        _fanPanel.Resize += (_, _) =>
+        {
+            foreach (var block in _fanPanel.Controls.OfType<Panel>())
+                block.Width = Math.Max(290, _fanPanel.ClientSize.Width - 28);
+        };
+    }
+
+    private Label AddAcpiFanCard(string label, bool detected)
+    {
+        var block = new Panel
+        {
+            Width = 480, Height = 139, BackColor = BlockColor, Margin = new Padding(0, 0, 0, 12)
+        };
+        var heading = Label("VENTILADOR " + label + " · lectura ATKACPI", 12, Foreground, FontStyle.Bold);
+        var measured = Label(detected ? "RPM: esperando lectura…" : "RPM: no disponible", 17, Accent, FontStyle.Bold);
+        var note = Label("Solo lectura · Perfiles ASUS disponibles por separado; PWM directo no confirmado.",
+            9, Muted);
+        block.Controls.Add(note);
+        block.Controls.Add(measured);
+        block.Controls.Add(heading);
+        _fanPanel.Controls.Add(block);
+        return measured;
     }
 
     private void BuildFanRows(int count)
@@ -382,6 +438,16 @@ internal sealed class MainForm : Form
         _watchdogState.ForeColor = alive ? Accent : Muted;
     }
 
+    private async Task ReturnToAsusAsync()
+    {
+        if (_session != null)
+        {
+            Restore();
+            return;
+        }
+        if (_profileSupported) await ApplyProfile(FanProfile.Standard);
+    }
+
     private void Restore()
     {
         if (_session == null) return;
@@ -431,7 +497,7 @@ internal sealed class MainForm : Form
         finally
         {
             _profileBusy = false;
-            ToggleProfiles(_caps?.SupportsProfiles ?? true);
+            ToggleProfiles(true);
         }
     }
 
@@ -445,12 +511,14 @@ internal sealed class MainForm : Form
             {
                 TelemetrySnapshot snap = await Task.Run(() => _telemetry!.ReadBestAsync(CancellationToken.None));
                 if (_closing || IsDisposed) return;
-                string rpms = snap.Rpms.Count == 0
-                    ? "sin lectura"
-                    : string.Join(" · ", snap.Rpms.Select(r => r.Type + " " + r.Value.ToString("N0") + " RPM"));
-                _fanCountLine.Text = "RPM medidas: " + rpms;
-                _temperature.Text = "CPU: " + (snap.Temperatures.CpuCelsius?.ToString() ?? "n/a") + " °C"
-                    + (snap.Temperatures.GpuCelsius is int g ? " · GPU: " + g + " °C" : string.Empty);
+                var cpu = snap.Rpms.FirstOrDefault(x => x.Type == FanType.Cpu && x.Value >= 0);
+                var gpu = snap.Rpms.FirstOrDefault(x => x.Type == FanType.Gpu && x.Value >= 0);
+                if (_acpiCpuRpm != null) _acpiCpuRpm.Text = cpu is null ? "RPM: sin lectura" : "RPM: " + cpu.Value.ToString("N0");
+                if (_acpiGpuRpm != null) _acpiGpuRpm.Text = gpu is null ? "RPM: sin lectura" : "RPM: " + gpu.Value.ToString("N0");
+                _fanCountLine.Text = $"RPM: CPU {(cpu is null ? "n/a" : cpu.Value)} · GPU {(gpu is null ? "n/a" : gpu.Value)}";
+                _temperature.Text = snap.Temperatures.CpuCelsius is int zone
+                    ? $"Zona térmica ACPI: ~{zone} °C (no núcleo CPU)"
+                    : "Temperatura: sensor de zona no disponible";
                 _lastUpdate.Text = "Última lectura: " + DateTime.Now.ToString("HH:mm:ss");
                 RecordAndChart(snap);
                 return;
@@ -530,5 +598,6 @@ internal sealed class MainForm : Form
         _telemetry?.Dispose();
         _watchdog?.Dispose(); // Watchdog waits for this process to exit, then restores again.
         _timer.Dispose();
+        _tooltips.Dispose();
     }
 }

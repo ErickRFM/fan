@@ -74,6 +74,19 @@ public static class FanPolicy
     /// </summary>
     public static int VivoBookWireMode(int baseMode) => baseMode switch { 1 => 2, 2 => 1, _ => baseMode };
 
+    /// <summary>Only three VivoBook profiles are known on M3500QC. No separate MAX/PWM.</summary>
+    public static int? VivoBookProfileWireMode(FanProfile profile) => profile switch
+    {
+        FanProfile.Whisper => 1,
+        FanProfile.Standard => 0,
+        FanProfile.Performance => 2,
+        _ => null
+    };
+
+    /// <summary>Rejects invalid API sentinel values even for balanced mode (0).</summary>
+    public static bool VivoBookProfileConfirmed(int raw, int wireMode) =>
+        raw >= 0 && wireMode is >= 0 and <= 2 && (raw & 0xFFFF) == wireMode;
+
     /// <summary>Selects the highest-version OEM library; stale DriverStore folders must never win.</summary>
     public static DllCandidate? SelectNewestDll(IEnumerable<DllCandidate> candidates)
     {
