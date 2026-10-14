@@ -139,7 +139,8 @@ internal sealed class MainForm : Form
         footer.Controls.AddRange(new Control[]
         {
             _hundred, _eighty, _apply, _automatic,
-            Label("PWM manual solo con driver HealthyTable válido. No confundir porcentaje pedido con RPM.", 9, Muted)
+            Label("PWM manual solo con driver HealthyTable válido. No confundir porcentaje pedido con RPM. " +
+                  "(Esc: volver a BIOS · F5: refrescar)", 9, Muted)
         });
 
         var profiles = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 106, Padding = new Padding(22, 8, 10, 4), WrapContents = true };
@@ -165,11 +166,42 @@ internal sealed class MainForm : Form
         Controls.Add(profiles);
         Controls.Add(top);
         ToggleControls(false);
+        ApplyAccessibility();
+        KeyPreview = true;
+        KeyDown += OnKeyDown;
         _timer = new System.Windows.Forms.Timer { Interval = 2000 };
         _timer.Tick += async (_, _) => await PollAsync();
         Shown += async (_, _) => await InitializeHardwareAsync();
         FormClosing += (_, _) => CloseHardware();
         SystemEvents.PowerModeChanged += OnPower;
+    }
+
+    /// <summary>Keyboard access: Esc returns control to ASUS, F5 forces an immediate refresh.</summary>
+    private void OnKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Escape)
+        {
+            e.Handled = true;
+            if (_automatic.Enabled) _ = ReturnToAsusAsync();
+        }
+        else if (e.KeyCode == Keys.F5)
+        {
+            e.Handled = true;
+            _ = PollAsync();
+        }
+    }
+
+    private void ApplyAccessibility()
+    {
+        AccessibleName = "FanForge M3500QC";
+        AccessibleDescription = "Panel de control de ventiladores ASUS. Esc vuelve a BIOS, F5 refresca.";
+        _hundred.AccessibleName = "Todos al 100 por ciento";
+        _eighty.AccessibleName = "Todos al 80 por ciento";
+        _apply.AccessibleName = "Aplicar velocidad individual";
+        _automatic.AccessibleName = "Volver a control automático de ASUS";
+        _whisper.AccessibleName = "Perfil silencioso";
+        _standard.AccessibleName = "Perfil estándar";
+        _performance.AccessibleName = "Perfil rendimiento";
     }
 
     private static Label Label(string text, float size, Color color, FontStyle style = FontStyle.Regular) =>

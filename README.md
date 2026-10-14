@@ -18,6 +18,7 @@
 - **Temperatura de zona ACPI** (v0.4): proveedor suplementario vía WMI `MSAcpi_ThermalZoneTemperature` (aproximada, requiere elevación).
 - **Diagnóstico de capacidades** multibackend: comando `--hardware-diagnose` (solo lectura, vuelca valores RAW) y UI que habilita cada función según lo que el hardware realmente soporta.
 - **Historial y mini-gráficas** de temperatura CPU y RPM en el dashboard (búfer acotado, autoescala).
+- **Accesibilidad:** escalado DPI `PerMonitorV2` (125–200 %), atajos `Esc` (volver a BIOS/ASUS) y `F5` (refrescar), y nombres accesibles.
 - Pruebas de reglas de negocio y de la máquina de estados con **controlador simulado (mock)**, pipeline Windows y scripts de diagnóstico.
 - Evita valores PWM bajos en el prototipo para no reducir de forma peligrosa la refrigeración.
 
