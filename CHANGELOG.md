@@ -17,6 +17,11 @@
 - **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
 - **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
 
+## 0.4.6 — Accesibilidad y atajos de teclado
+- **DPI:** modo `PerMonitorV2` en el proyecto y `AutoScaleMode.Dpi` en el formulario; la disposición escala a 125–200 %.
+- **Teclado:** `Esc` devuelve el control a BIOS/ASUS y `F5` fuerza un refresco inmediato; se muestra la ayuda en el pie.
+- **Accesibilidad:** nombre/descripción accesibles en el formulario y en todos los botones de acción.
+
 ## 0.4.5 — Watchdog bidireccional
 - **Core:** `WatchdogPolicy` clasifica el estado (inactivo/activo/perdido) y decide si un watchdog perdido durante control manual obliga a restaurar BIOS.
 - **Win:** el sondeo comprueba el watchdog cada ciclo; si desaparece durante control manual, restaura a BIOS y avisa (el propio watchdog ya restaura si muere la UI).

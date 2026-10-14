@@ -37,7 +37,8 @@
 ## F3 — UX
 - [x] Historial y gráficas RPM/temperatura.
 - [ ] Perfiles personalizables validados contra sensores.
-- [ ] Accesibilidad 125–200% y pruebas teclado.
+- [x] Accesibilidad de escalado (`PerMonitorV2` + `AutoScaleMode.Dpi`) y atajos `Esc`/`F5` con nombres accesibles.
+- [ ] Validar visualmente 125–200% y navegación por teclado en el equipo físico.
 - [ ] Empaquetado instalador firmado.
 
 Nunca declarar compatibilidad real sin mediciones en el equipo físico.
