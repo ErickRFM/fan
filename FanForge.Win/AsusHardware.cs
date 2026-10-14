@@ -11,6 +11,9 @@ internal sealed class AsusHardware : IFanBackend
 
     public int FanCount { get; }
 
+    /// <summary>Path and signature verification of the OEM library actually loaded.</summary>
+    public string[] LibraryInfo { get; private set; } = Array.Empty<string>();
+
     public static string Model()
     {
         // Registry/WMI manufacturer metadata may vary by BIOS version.
@@ -71,6 +74,12 @@ internal sealed class AsusHardware : IFanBackend
             throw new NotSupportedException("Only confirmed model identifier M3500QC is allowed.");
         string dll = FindOfficialDll() ?? throw new FileNotFoundException(
             "ASUS System Analysis / AsusWinIO64.dll not found in DriverStore.");
+        var (version, signer, trusted) = OemLibraryVerifier.Inspect(dll);
+        LibraryInfo = new[] { dll, OemLibraryPolicy.Describe(version, signer), trusted ? "firma verificada" : "firma NO verificada" };
+        if (!OemLibraryPolicy.VersionSupported(version))
+            throw new NotSupportedException(
+                "AsusWinIO64.dll tiene una versión no reconocida (" + (version?.ToString() ?? "desconocida") + "); " +
+                "no se carga una biblioteca OEM no verificada.");
         AsusNative.Load(dll);
         AsusNative.InitializeWinIo();
         try
