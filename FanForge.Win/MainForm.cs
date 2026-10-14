@@ -26,6 +26,9 @@ internal sealed class MainForm : Form
     private FanBackendManager? _telemetry;
     private AsusAcpiControlBackend? _acpiControl;
     private FanCapabilities? _caps;
+    private readonly TelemetryHistory _history = new(180);
+    private readonly Sparkline _tempChart = new() { Unit = "°C", Height = 120 };
+    private readonly Sparkline _rpmChart = new() { Unit = "RPM", Height = 120 };
     private readonly List<(TrackBar Slider, Label Rpm, Label Percent)> _rows = new();
     private readonly FlowLayoutPanel _fanPanel;
     private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _providerLine, _temperature, _lastUpdate;
@@ -82,8 +85,9 @@ internal sealed class MainForm : Form
         };
         center.Controls.Add(_fanPanel, 0, 0);
 
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         right.RowStyles.Add(new RowStyle(SizeType.Absolute, 285));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 156));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var card = new Panel { Dock = DockStyle.Fill, BackColor = PanelColor, Padding = new Padding(14) };
         _modelLine = Label("Modelo: pendiente", 10, Foreground);
@@ -98,6 +102,18 @@ internal sealed class MainForm : Form
             card.Controls.Add(control);
         card.Controls.Add(Label("PWM pedido NO equivale a RPM medidas", 9, Warning));
         right.Controls.Add(card, 0, 0);
+
+        var charts = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Padding = new Padding(0, 4, 0, 4) };
+        charts.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        charts.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        _tempChart.Dock = DockStyle.Fill;
+        _rpmChart.Dock = DockStyle.Fill;
+        _rpmChart.LineColor = Color.FromArgb(240, 180, 90);
+        _rpmChart.FillColor = Color.FromArgb(40, 240, 180, 90);
+        charts.Controls.Add(_tempChart, 0, 0);
+        charts.Controls.Add(_rpmChart, 0, 1);
+        right.Controls.Add(charts, 0, 1);
+
         _diagnostic = new TextBox
         {
             Dock = DockStyle.Fill,
@@ -109,7 +125,7 @@ internal sealed class MainForm : Form
             BorderStyle = BorderStyle.FixedSingle,
             Font = new Font("Consolas", 9)
         };
-        right.Controls.Add(_diagnostic, 0, 1);
+        right.Controls.Add(_diagnostic, 0, 2);
         center.Controls.Add(right, 1, 0);
 
         var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 110, Padding = new Padding(22, 12, 10, 8) };
@@ -450,6 +466,15 @@ internal sealed class MainForm : Form
         UpdateWatchdogState();
     }
 
+    private void RecordAndChart(TelemetrySnapshot snapshot)
+    {
+        _history.Add(snapshot);
+        var points = _history.Points;
+        _tempChart.SetSeries(points.Select(p => (double?)p.CpuCelsius));
+        _rpmChart.SetSeries(points.Select(p =>
+            p.CpuRpm is int cpu ? (double?)cpu : p.GpuRpm is int gpu ? gpu : null));
+    }
+
     private async Task ApplyProfile(FanProfile profile)
     {
         if (_acpiControl == null || _profileBusy) return;
@@ -495,6 +520,7 @@ internal sealed class MainForm : Form
                     ? $"Zona térmica ACPI: ~{zone} °C (no núcleo CPU)"
                     : "Temperatura: sensor de zona no disponible";
                 _lastUpdate.Text = "Última lectura: " + DateTime.Now.ToString("HH:mm:ss");
+                RecordAndChart(snap);
                 return;
             }
 
@@ -507,6 +533,12 @@ internal sealed class MainForm : Form
             }
             _temperature.Text = snapshot.Temperature is int value ? "CPU: " + value + " °C" : "CPU: sin lectura OEM";
             _lastUpdate.Text = "Última lectura: " + DateTime.Now.ToString("HH:mm:ss");
+
+            var sessionSnap = new TelemetrySnapshot(
+                snapshot.Rpms.Select((rpm, i) => new FanRpm(i == 1 ? FanType.Gpu : FanType.Cpu, rpm)).ToArray(),
+                new TemperatureReading(snapshot.Temperature, null),
+                DateTimeOffset.UtcNow);
+            RecordAndChart(sessionSnap);
 
             ControlEvent evt = _session.Evaluate(snapshot);
             switch (evt)
