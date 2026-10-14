@@ -124,6 +124,18 @@ Check(!FanPolicy.VivoBookProfileConfirmed(-65536, 0), "reject failed readback ev
 Check(!FanPolicy.VivoBookProfileConfirmed(131073, 2), "reject mismatched readback");
 Check(!FanPolicy.VivoBookProfileConfirmed(131075, 3), "reject unsupported profile 3");
 
+// ---- Control conflicts: known OEM tools ----
+Check(ControlConflicts.IsConflict("MyASUS"), "detects MyASUS");
+Check(ControlConflicts.IsConflict("myasus.exe"), "detects MyASUS exe, case-insensitive");
+Check(ControlConflicts.IsConflict("G-Helper"), "detects G-Helper");
+Check(!ControlConflicts.IsConflict("chrome"), "ignores unknown process");
+Check(!ControlConflicts.IsConflict(""), "ignores empty name");
+Check(!ControlConflicts.IsConflict(null), "ignores null name");
+var conflicts = ControlConflicts.Detect(new[] { "explorer", "MyASUS", "myasus", "GHelper", null });
+Check(conflicts.Count == 2 && conflicts.Contains("MyASUS") && conflicts.Contains("GHelper"), "dedupes and orders conflicts");
+Check(ControlConflicts.Advisory(Array.Empty<string>()) == "", "empty advisory when clean");
+Check(ControlConflicts.Advisory(conflicts).Contains("MyASUS"), "advisory names the tool");
+
 // ---- Session: manual state machine with a mock controller ----
 var time = new ManualTime();
 var backend = new FakeBackend(2, new[] { 1000, 1000 });
