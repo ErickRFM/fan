@@ -1,30 +1,47 @@
 namespace FanForge.Core;
 
 /// <summary>
-/// Validation rules for the OEM fan library (AsusWinIO64.dll). Pure so the decision can be
-/// unit-tested without loading any native code; the file/signature read happens in FanForge.Win.
+/// Fail-closed rules for deciding whether an OEM DLL may be loaded.
+/// The signature's cryptographic and local chain validation occurs in the Windows host.
+/// Subject matching alone is never a security verification.
 /// </summary>
 public static class OemLibraryPolicy
 {
-    /// <summary>Lowest file version we accept; anything older is treated as unknown/stale.</summary>
     public static readonly Version MinimumVersion = new(0, 0, 0, 1);
 
     public static bool VersionSupported(Version? version) =>
         version is not null && version >= MinimumVersion;
 
-    /// <summary>Accepts Authenticode signers whose subject names ASUS (ASUSTeK).</summary>
-    public static bool TrustedSigner(string? subject) =>
-        !string.IsNullOrWhiteSpace(subject) &&
-        (subject.Contains("ASUS", StringComparison.OrdinalIgnoreCase) ||
-         subject.Contains("ASUSTeK", StringComparison.OrdinalIgnoreCase));
+    /// <summary>
+    /// Accept exact known ASUS signer common names, not misleading substrings such as
+    /// "Untrusted ASUS Helper" or an arbitrary company name containing ASUS.
+    /// </summary>
+    public static bool TrustedSigner(string? subject)
+    {
+        if (string.IsNullOrWhiteSpace(subject)) return false;
+        foreach (string part in subject.Split(','))
+        {
+            string field = part.Trim();
+            if (!field.StartsWith("CN=", StringComparison.OrdinalIgnoreCase)) continue;
+            string name = field.Substring(3).Trim().Trim('"');
+            return name.Equals("ASUSTeK COMPUTER INC.", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("ASUS", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("ASUS COMPUTER INTERNATIONAL", StringComparison.OrdinalIgnoreCase);
+        }
+        return false;
+    }
 
-    /// <summary>Human-readable verification summary for logs and diagnostics.</summary>
+    /// <summary>Requires genuine Authenticode trust, recognized ASUS signer and supported version.</summary>
+    public static bool MayLoad(Version? version, string? subject, bool authenticodeValid) =>
+        VersionSupported(version) && authenticodeValid && TrustedSigner(subject);
+
     public static string Describe(Version? version, string? signerSubject)
     {
-        string v = VersionSupported(version) ? version!.ToString() : (version?.ToString() ?? "desconocida") + " (no soportada)";
-        string s = string.IsNullOrWhiteSpace(signerSubject)
-            ? "sin firma legible"
-            : (TrustedSigner(signerSubject) ? "firmante ASUS: " : "firmante no ASUS: ") + signerSubject;
-        return "versión " + v + "; " + s;
+        string v = VersionSupported(version) ? version!.ToString() :
+            (version?.ToString() ?? "desconocida") + " (no soportada)";
+        string s = string.IsNullOrWhiteSpace(signerSubject) ? "sin firmante legible"
+            : (TrustedSigner(signerSubject) ? "firmante ASUS reconocido: " : "firmante no autorizado: ") + signerSubject;
+        return "versión " + v + "; " + s +
+            "; el nombre del firmante no prueba la validez criptográfica de Authenticode";
     }
 }

@@ -50,3 +50,10 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [x] Aplicar control de perfiles solo cuando el hardware declare soporte.
 - [ ] Validar en M3500QC real que cada modo solicitado se acepta y que las RPM cambian según temperatura.
 - [ ] Investigar otra vía OEM oficialmente admitida para control manual; ATKACPI no expone curvas/PWM en este BIOS.
+
+## v0.6 — Hardening de interoperabilidad
+- [x] Guardas de modelo en backend de perfiles y comandos CLI, además del controlador PWM.
+- [x] Handles ATKACPI locales por operación; se evita el campo compartido por lecturas y escrituras.
+- [x] Telemetría no declara `Supported` si el driver/ventiladores no responden.
+- [x] Bloqueo de selección de perfil mientras hay una sesión PWM manual.
+- [ ] Validar perfil y restauración en VivoBook real; no se ejecutaron escrituras de hardware.

@@ -431,7 +431,7 @@ internal sealed class MainForm : Form
 
     private void Apply()
     {
-        if (_session == null || _rows.Count != _session.FanCount) return;
+        if (_session == null || _rows.Count != _session.FanCount || _profileBusy) return;
         if (!_manualConfirmed && !ConfirmManual()) return;
         try
         {
@@ -527,7 +527,11 @@ internal sealed class MainForm : Form
 
     private async Task ApplyProfile(FanProfile profile)
     {
-        if (_acpiControl == null || _profileBusy) return;
+        if (_acpiControl == null || _profileBusy || (_session?.Manual ?? false))
+        {
+            if (_session?.Manual ?? false) Log("Primero vuelve a BIOS antes de cambiar perfiles.");
+            return;
+        }
         _profileBusy = true;
         ToggleProfiles(true);
         _status.Text = "Aplicando perfil " + profile + "…";

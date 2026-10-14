@@ -75,11 +75,14 @@ internal sealed class AsusHardware : IFanBackend
         string dll = FindOfficialDll() ?? throw new FileNotFoundException(
             "ASUS System Analysis / AsusWinIO64.dll not found in DriverStore.");
         var (version, signer, trusted) = OemLibraryVerifier.Inspect(dll);
-        LibraryInfo = new[] { dll, OemLibraryPolicy.Describe(version, signer), trusted ? "firma verificada" : "firma NO verificada" };
-        if (!OemLibraryPolicy.VersionSupported(version))
+        LibraryInfo = new[] { dll, OemLibraryPolicy.Describe(version, signer),
+            trusted ? "Authenticode válido (revocación en línea no comprobada)" : "Authenticode NO verificado" };
+        if (!trusted)
             throw new NotSupportedException(
-                "AsusWinIO64.dll tiene una versión no reconocida (" + (version?.ToString() ?? "desconocida") + "); " +
-                "no se carga una biblioteca OEM no verificada.");
+                "No se cargará AsusWinIO64.dll: la versión, el firmante ASUS o " +
+                "la firma Authenticode/cadena de confianza no pudieron verificarse. " +
+                "Instala el paquete oficial ASUS System Control Interface. " +
+                "FanForge no permite omitir esta comprobación.");
         AsusNative.Load(dll);
         AsusNative.InitializeWinIo();
         try

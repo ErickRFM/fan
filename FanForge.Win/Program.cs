@@ -90,6 +90,8 @@ internal static class Program
                    " pwm=" + controlCaps.SupportsPwmDirect);
             if (AsusAcpiNative.TryOpen(out var rawHandle))
             {
+                try
+                {
                 Report("Raw Temp_CPU(0x00120094)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.Temp_CPU));
                 Report("Raw Temp_GPU(0x00120097)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.Temp_GPU));
                 Report("Raw CPU_Fan(0x00110013)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.CPU_Fan));
@@ -98,7 +100,8 @@ internal static class Program
                 Report("Raw PerformanceMode(0x00120075)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.PerformanceMode));
                 Report("Raw DevsCPUFanCurve(0x00110024)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.DevsCPUFanCurve));
                 Report("Raw DevsGPUFanCurve(0x00110025)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.DevsGPUFanCurve));
-                AsusAcpiNative.Close(rawHandle);
+                }
+                finally { AsusAcpiNative.Close(rawHandle); }
             }
             Report("Hardware-diagnose completado; control manual NO activado.");
             return 0;
@@ -118,7 +121,12 @@ internal static class Program
         Report("FanForge --set-profile " + name);
         if (!Enum.TryParse<FanProfile>(name, ignoreCase: true, out var profile))
         {
-            Report("Perfil invalido. Usa: Auto, Whisper, Standard, Performance, Max.");
+            Report("Perfil invalido. Usa: Whisper, Standard, Performance.");
+            return 3;
+        }
+        if (FanPolicy.VivoBookProfileWireMode(profile) is null)
+        {
+            Report("Perfil no soportado por este modelo. Usa: Whisper, Standard, Performance.");
             return 3;
         }
         try
