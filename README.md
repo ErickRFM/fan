@@ -108,6 +108,7 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 | `FanForge.Core/Multibackend.cs` | `IFanTelemetryProvider`, `IFanControlBackend`, `FanCapabilities`, `TelemetrySnapshot`, `TelemetryMerge` |
 | `FanForge.Core/TelemetryHistory.cs` | Búfer circular acotado de muestras para gráficas |
 | `FanForge.Core/ControlConflicts.cs` | Detección de herramientas ASUS que compiten por el control |
+| `FanForge.Core/OemLibraryPolicy.cs` | Validación (versión/firmante) de la DLL OEM |
 | `FanForge.Win/AsusNative.cs` | Interop de exports ASUS, carga de DLL OEM |
 | `FanForge.Win/AsusHardware.cs` | Lectura, escritura y restauración serializadas (I/O nativo) |
 | `FanForge.Win/AsusAcpiNative.cs` | Interop ATKACPI (`DeviceGet`/`DeviceSet`, métodos y constantes) |
@@ -118,6 +119,7 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 | `FanForge.Win/Watchdog.cs` | Recuperación al terminar el proceso padre |
 | `FanForge.Win/Sparkline.cs` | Mini-gráfica de línea con autoescala |
 | `FanForge.Win/FanToolConflictDetector.cs` | Enumera procesos y avisa de MyASUS/Armoury Crate/G-Helper activos |
+| `FanForge.Win/OemLibraryVerifier.cs` | Lee versión y firmante Authenticode de AsusWinIO64.dll |
 | `FanForge.Win/MainForm.cs` | Dashboard WinForms con reconocimiento de capacidades |
 | `FanForge.Tests/` | Pruebas de política y de sesión con backend falso |
 | `scripts/` | Diagnóstico, compilación y restauración |

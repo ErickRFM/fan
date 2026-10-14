@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **88/88 PASAN**. Cubren:
+Resultado: **99/99 PASAN**. Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -28,6 +28,7 @@ Resultado: **88/88 PASAN**. Cubren:
 - **Combinación de telemetría** (`TelemetryMerge`): prioridad del primer proveedor con RPM válidos, descarte de RPM `-1`, relleno de temperatura desde proveedores posteriores y caso vacío.
 - **Historial acotado** (`TelemetryHistory`): recorte a capacidad, orden cronológico, mapeo de RPM por tipo, descarte de valores no legibles, `Latest` y `Clear`.
 - **Conflictos de control** (`ControlConflicts`): detección insensible a mayúsculas y `.exe`, deduplicación, orden y aviso; procesos desconocidos se ignoran.
+- **Biblioteca OEM** (`OemLibraryPolicy`): aceptación por versión mínima, confianza solo en firmantes ASUS/ASUSTeK y descripción legible del estado.
 - Máquina de estados `FanSession` con **controlador falso**: aplicar, reaplicar por intervalo, evento de reaplicación, confirmación/no confirmación, restauración por parada, propagación de error OEM con restauración, y `Dispose` idempotente.
 
 Ninguna prueba toca hardware; el backend es un mock (`FakeBackend`) y el reloj es determinista (`ManualTime`).

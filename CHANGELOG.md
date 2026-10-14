@@ -17,6 +17,11 @@
 - **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
 - **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
 
+## 0.4.4 — Verificación de la biblioteca OEM
+- **Core:** `OemLibraryPolicy` valida versión mínima y firmante Authenticode ASUS/ASUSTeK, con descripción legible; pura y testeable.
+- **Win:** `OemLibraryVerifier` lee versión y firmante de `AsusWinIO64.dll`; `AsusHardware` rechaza versiones no reconocidas y expone la firma, que el dashboard registra.
+- **Pruebas:** 99 comprobaciones (antes 88).
+
 ## 0.4.3 — Detección de herramientas ASUS en conflicto
 - **Core:** `ControlConflicts` reconoce utilidades conocidas (MyASUS, Armoury Crate, G-Helper, ASUS Optimization) sin enumerar procesos reales.
 - **Win:** `FanToolConflictDetector` enumera procesos y expone las que pueden competir por el control de ventiladores; el dashboard muestra un aviso y `--hardware-diagnose` lo registra.

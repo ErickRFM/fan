@@ -61,6 +61,19 @@ Check(newest?.Path == @"C:\new\AsusWinIO64.dll", "newest dll selected");
 Check(FanPolicy.SelectNewestDll(Array.Empty<DllCandidate>()) is null, "empty dll set");
 Check(FanPolicy.SelectNewestDll(new[] { new DllCandidate("", new Version(9, 9)) }) is null, "blank dll path ignored");
 
+// ---- Policy: OEM library version and signature verification ----
+Check(OemLibraryPolicy.VersionSupported(new Version(3, 1, 0, 0)), "accepts modern oem version");
+Check(!OemLibraryPolicy.VersionSupported(new Version(0, 0, 0, 0)), "rejects zero oem version");
+Check(!OemLibraryPolicy.VersionSupported(null), "rejects null oem version");
+Check(OemLibraryPolicy.TrustedSigner("CN=ASUSTeK Computer Inc."), "trusts asus signer");
+Check(OemLibraryPolicy.TrustedSigner("CN=ASUS"), "trusts asus signer short");
+Check(!OemLibraryPolicy.TrustedSigner("CN=Evil Corp"), "rejects foreign signer");
+Check(!OemLibraryPolicy.TrustedSigner(""), "rejects empty signer");
+Check(OemLibraryPolicy.TrustedSigner(null) == false, "rejects null signer");
+Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "ASUSTeK").Contains("firmante ASUS"), "describe names asus signer");
+Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "Evil Corp").Contains("no ASUS"), "describe flags foreign signer");
+Check(OemLibraryPolicy.Describe(new Version(0, 0, 0, 0), "ASUS").Contains("no soportada"), "describe flags unsupported version");
+
 // ---- Policy: ATKACPI decode ----
 Check(FanPolicy.AcpiFanRpm(53) == 5300, "acpi fan raw 53 -> 5300");
 Check(FanPolicy.AcpiFanRpm(0) == 0, "acpi fan zero rpm");
