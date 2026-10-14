@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.ComponentModel;
+using System.IO;
 
 namespace FanForge;
 
@@ -61,8 +63,11 @@ internal static class AsusAcpiNative
         BitConverter.GetBytes((uint)args.Length).CopyTo(acpiBuf, 4);
         Array.Copy(args, 0, acpiBuf, 8, args.Length);
         uint bytesReturned = 0;
-        DeviceIoControl(handle, CONTROL_CODE, acpiBuf, (uint)acpiBuf.Length, outBuffer, (uint)outBuffer.Length,
-            ref bytesReturned, IntPtr.Zero);
+        if (!DeviceIoControl(handle, CONTROL_CODE, acpiBuf, (uint)acpiBuf.Length, outBuffer, (uint)outBuffer.Length,
+            ref bytesReturned, IntPtr.Zero))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "ATKACPI DeviceIoControl failed");
+        if (bytesReturned < sizeof(int))
+            throw new IOException("ATKACPI returned an incomplete response.");
         return outBuffer;
     }
 

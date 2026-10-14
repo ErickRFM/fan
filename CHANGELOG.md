@@ -1,3 +1,10 @@
+## v0.5.0 — Claridad de control ASUS y lectura CPU/GPU (en revisión)
+- Tarjetas de telemetría CPU y GPU cuando HealthyTable está indisponible.
+- PWM no disponible visualmente deshabilitado; mensaje de diagnóstico y tooltips.
+- Eliminado falso Perfil Máximo (alias de Rendimiento); retorno ASUS mediante perfil Estándar.
+- Validación de confirmación de cambios de perfil; rechazo de perfiles no soportados y respuestas IOCTL incompletas.
+- Sin escrituras nuevas a EC ni control PWM físico habilitado; validación física pendiente.
+
 # Historial
 
 ## 0.4.0 — Multibackend ASUS, telemetría ATKACPI y perfiles (rama `feat/v04-asus-acpi-hardware-integration`)
