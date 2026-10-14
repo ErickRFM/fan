@@ -100,3 +100,8 @@ La interfaz muestra tarjetas CPU/GPU basadas en lecturas ACPI cuando HealthyTabl
 - Los errores de apertura de ATKACPI se reportan como `DriverError`, no como una capacidad de telemetría soportada.
 - Un endpoint de curva legible no se anuncia como control de curva implementado.
 - Las pruebas de hardware siguen pendientes: las llamadas `DeviceIoControl` a firmware no son cancelables de forma garantizada.
+
+## Autenticidad del controlador de sistema (auditoría v0.6)
+La versión anterior interpretaba `X509Certificate.CreateFromSignedFile` y un texto con «ASUS» como prueba de firma. Eso **solo extraía un certificado**, no validaba la integridad de los bytes firmados ni la confianza Windows. Ahora `OemLibraryVerifier` usa `WinVerifyTrust` (cadena local y firma del archivo, sin comprobación de revocación remota), cruza el CN autorizado y la versión y **bloquea el cargado nativo si no cumplen las tres condiciones**.
+
+Esto debe probarse en el equipo real con un paquete oficial ASUS; la CI solo ejecuta la política pura mediante mocks. Una firma válida offline **no demuestra que un certificado esté sin revocar**. No distribuir drivers ni desactivar protección de firmas.

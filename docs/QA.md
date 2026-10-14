@@ -57,3 +57,9 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 - **Capacidades:** `perfiles=True`, `curvas=False`, `pwm=False`. `VivoBookMode(0x00110019)` = `131074` (soportado); `PerformanceMode(0x00120075)` = `-65536`.
 - Conclusión: **telemetría de RPM vía ATKACPI operativa** y **cambio de perfil disponible**; PWM/curvas ATKACPI no existen en este modelo. La escritura de perfil queda pendiente de autorización del usuario presente.
 
+
+## Auditoría correctiva v0.6 — verificación automatizada
+- Pruebas nuevas de CN estricto y política `MayLoad` (firma válida + versión + proveedor autorizado).
+- `WinVerifyTrust` nativo se invoca únicamente al intentar cargar `AsusWinIO64.dll` en Windows; **no puede validarse en CI sin una DLL ASUS real**.
+- Operaciones ATKACPI desacopladas por handle; perfil de escritura con guarda del M3500QC.
+- Validación física de firma y de perfiles sigue **pendiente**; no inferir compatibilidad PWM.
