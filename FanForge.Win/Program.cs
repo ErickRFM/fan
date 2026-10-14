@@ -18,6 +18,12 @@ internal static class Program
         if (args.Length == 1 && args[0] == "--probe")
             return Probe();
 
+        if (args.Length == 1 && args[0] == "--hardware-diagnose")
+            return HardwareDiagnose();
+
+        if (args.Length == 2 && args[0] == "--set-profile")
+            return SetProfile(args[1]);
+
         using var mutex = new Mutex(true, @"Local\FanForge-M3500QC", out bool acquired);
         if (!acquired)
         {
@@ -51,6 +57,77 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine("Probe falló: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>Read-only multibackend diagnostic: probes ACPI/ATKACPI telemetry without writing.</summary>
+    private static int HardwareDiagnose()
+    {
+        AttachConsole();
+        Report("FanForge hardware-diagnose (read-only; no escribe PWM)");
+        try
+        {
+            using var manager = new FanBackendManager(
+                new IFanTelemetryProvider[] { new AsusAcpiTelemetry(), new AcpiThermalZoneTelemetry() },
+                Array.Empty<IFanControlBackend>());
+            Report("Proveedores de telemetria: " + string.Join(", ", manager.TelemetryProviders));
+            var caps = manager.GetBestCapabilitiesAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Report("Estado: " + caps.TelemetryState);
+            Report("CPU/GPU soportados: " + caps.SupportsCpuFan + "/" + caps.SupportsGpuFan);
+            var snap = manager.ReadBestAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Report("RPM: " + string.Join(" / ", snap.Rpms.Select(r => r.Type + "=" + r.Value)));
+            Report("Temperaturas: CPU=" + (snap.Temperatures.CpuCelsius?.ToString() ?? "n/a") +
+                   " GPU=" + (snap.Temperatures.GpuCelsius?.ToString() ?? "n/a"));
+            using var control = new AsusAcpiControlBackend();
+            var controlCaps = control.GetCapabilitiesAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Report("Control: perfiles=" + controlCaps.SupportsProfiles + " curvas=" + controlCaps.SupportsFanCurves +
+                   " pwm=" + controlCaps.SupportsPwmDirect);
+            if (AsusAcpiNative.TryOpen(out var rawHandle))
+            {
+                Report("Raw Temp_CPU(0x00120094)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.Temp_CPU));
+                Report("Raw Temp_GPU(0x00120097)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.Temp_GPU));
+                Report("Raw CPU_Fan(0x00110013)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.CPU_Fan));
+                Report("Raw GPU_Fan(0x00110014)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.GPU_Fan));
+                Report("Raw VivoBookMode(0x00110019)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.VivoBookMode));
+                Report("Raw PerformanceMode(0x00120075)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.PerformanceMode));
+                Report("Raw DevsCPUFanCurve(0x00110024)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.DevsCPUFanCurve));
+                Report("Raw DevsGPUFanCurve(0x00110025)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.DevsGPUFanCurve));
+                AsusAcpiNative.Close(rawHandle);
+            }
+            Report("Hardware-diagnose completado; control manual NO activado.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("hardware-diagnose fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>Applies an ASUS performance profile via ATKACPI (verified by read-back).</summary>
+    private static int SetProfile(string name)
+    {
+        AttachConsole();
+        Report("FanForge --set-profile " + name);
+        if (!Enum.TryParse<FanProfile>(name, ignoreCase: true, out var profile))
+        {
+            Report("Perfil invalido. Usa: Auto, Whisper, Standard, Performance, Max.");
+            return 3;
+        }
+        try
+        {
+            using var control = new AsusAcpiControlBackend();
+            var result = control.ApplyAsync(new FanControlRequest(profile, null, null), CancellationToken.None)
+                .GetAwaiter().GetResult();
+            Report((result.Success ? "OK: " : "FALLO: ") + result.Message);
+            return result.Success ? 0 : 2;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("set-profile fallo: " + ex.GetType().Name + ": " + ex.Message);
             Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
             return 2;
         }

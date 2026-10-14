@@ -35,10 +35,12 @@ Write-Host "`n== Sonda de lectura (opcional) ==" -ForegroundColor Yellow
 if (Test-Path $exe) {
   if (([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host 'Ejecutando probe de solo lectura (no activa control manual)...' -ForegroundColor Cyan
+    Write-Host 'Ejecutando probe HealthyTable (solo lectura)...' -ForegroundColor Cyan
     & $exe --probe
+    Write-Host 'Ejecutando hardware-diagnose ATKACPI (solo lectura, multi-backend)...' -ForegroundColor Cyan
+    & $exe --hardware-diagnose
   } else {
-    Write-Host "Para leer RPM/CPU reales ejecuta en una consola elevada:`n  `"$exe`" --probe" -ForegroundColor DarkYellow
+    Write-Host "Para leer RPM/temperaturas reales ejecuta en una consola elevada:`n  `"$exe`" --probe`n  `"$exe`" --hardware-diagnose" -ForegroundColor DarkYellow
   }
 } else {
   Write-Host 'dist\FanForge.exe no existe; compila con scripts\compilar.ps1.' -ForegroundColor DarkYellow
