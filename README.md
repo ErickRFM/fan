@@ -2,7 +2,7 @@
 
 **Aplicación de escritorio para Windows 11 x64, enfocada inicialmente en el ASUS VivoBook Pro 15 OLED M3500QC.** Implementada en C#/.NET 8 con Windows Forms, acceso a APIs de ASUS System Analysis, lectura de RPM, botones 80%/100%, controles individuales y restauración a modo BIOS.
 
-> **Estado: prototipo en validación (v0.4).** La compilación y las pruebas automatizadas (simuladas) pasan. En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` porque el driver de kernel `AsusSAIO` está `Degraded`/`Stop Pending` (regresión conocida del driver ASUS). Para no depender de ella, FanForge v0.4 añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md) y [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
+> **Estado: software v0.6 integrado; hardware PWM en validación.** La compilación y las pruebas automatizadas (simuladas) pasan. En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` porque el driver de kernel `AsusSAIO` está `Degraded`/`Stop Pending` (regresión conocida del driver ASUS). Para no depender de ella, FanForge v0.4 añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md) y [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
 
 ## Funcionalidades
 
@@ -14,11 +14,12 @@
 - Interfaz que nunca confunde PWM solicitado con RPM medidas; muestra estado ASUS, modo, watchdog, CPU y registro de eventos; el trabajo de hardware ocurre fuera del hilo de UI.
 - Botón **VOLVER A BIOS**, comando `--restore`, restauración al cerrar y observador en proceso separado (`--watchdog`).
 - Comando **`--probe`** de solo lectura para leer modelo, BIOS, ventiladores, RPM y CPU sin activar el control manual.
-- **Backend ATKACPI** (v0.4): lee **RPM reales de CPU/GPU** (`0x00110013`/`0x00110014`, unidad = 100 RPM) aunque HealthyTable falle, y ofrece **perfiles ASUS** (Silencioso/Estándar/Rendimiento/Máximo) con verificación por lectura posterior.
+- **Backend ATKACPI** (v0.4): lee **RPM reales de CPU/GPU** (`0x00110013`/`0x00110014`, unidad = 100 RPM) aunque HealthyTable falle, y ofrece **perfiles ASUS** (Silencioso/Estándar/Rendimiento) con verificación por lectura posterior. No hay perfil independiente «Máximo».
 - **Temperatura de zona ACPI** (v0.4): proveedor suplementario vía WMI `MSAcpi_ThermalZoneTemperature` (aproximada, requiere elevación).
 - **Diagnóstico de capacidades** multibackend: comando `--hardware-diagnose` (solo lectura, vuelca valores RAW) y UI que habilita cada función según lo que el hardware realmente soporta.
 - **Historial y mini-gráficas** de temperatura CPU y RPM en el dashboard (búfer acotado, autoescala).
 - **Accesibilidad:** escalado DPI `PerMonitorV2` (125–200 %), atajos `Esc` (volver a BIOS/ASUS) y `F5` (refrescar), y nombres accesibles.
+- **Seguridad v0.6:** comprobación de cadena local y firma Authenticode con WinVerifyTrust antes de cargar la DLL WinIO (la revocación en línea no se consulta); CN ASUS reconocido y versión compatible obligatorios. Rechazo de escrituras fuera del modelo M3500QC y handles nativos ACPI independientes.
 - Pruebas de reglas de negocio y de la máquina de estados con **controlador simulado (mock)**, pipeline Windows y scripts de diagnóstico.
 - Evita valores PWM bajos en el prototipo para no reducir de forma peligrosa la refrigeración.
 
@@ -84,7 +85,7 @@ los métodos consultados. Para cambiar de perfil (escritura verificada por lectu
 .\dist\FanForge.exe --set-profile Standard
 ```
 
-Perfiles válidos: `Auto`, `Whisper`, `Standard`, `Performance`, `Max`. Solo debe usarse cuando
+Perfiles válidos: `Whisper`, `Standard`, `Performance`. `Auto` y `Max` no son escrituras válidas de ATKACPI; `Performance` no fija PWM al 100%. Solo debe usarse cuando
 la persona esté presente y ningún otro programa controle los ventiladores.
 
 ## Prueba supervisada

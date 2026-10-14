@@ -63,3 +63,10 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 - `WinVerifyTrust` nativo se invoca únicamente al intentar cargar `AsusWinIO64.dll` en Windows; **no puede validarse en CI sin una DLL ASUS real**.
 - Operaciones ATKACPI desacopladas por handle; perfil de escritura con guarda del M3500QC.
 - Validación física de firma y de perfiles sigue **pendiente**; no inferir compatibilidad PWM.
+
+## v0.6 — Auditoría en CI Windows (GitHub)
+- **115/115 comprobaciones de política y mocks aprobadas**, comprobadas en la ejecución de rama [38606816282](https://github.com/ErickRFM/fan/actions/runs/38606816282).
+- Compilación Release y publicación win-x64: PASS. Paquete de previsualización no firmado como app.
+- Autenticidad del archivo nativo: `WinVerifyTrust` integrado; **sin prueba con la DLL instalada físicamente** en el runner de CI. No se verifica revocación remota.
+- Se requiere probar en M3500QC que el driver OEM legítimo sea aceptado y que el comportamiento de perfiles no cambie inesperadamente.
+- Esto no comprueba PWM ni ventiladores al 100%; se mantienen bloqueados hasta recuperar HealthyTable y medir RPM.
