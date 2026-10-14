@@ -1,0 +1,29 @@
+name: Windows build and policy checks
+on:
+  push:
+    branches: [main, 'feat/**', 'fix/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Verify hardware-independent policy
+        run: dotnet run --project FanForge.Tests/FanForge.Tests.csproj -c Release
+      - name: Build Windows GUI
+        run: dotnet build FanForge.Win/FanForge.Win.csproj -c Release
+      - name: Publish unsigned preview
+        run: dotnet publish FanForge.Win/FanForge.Win.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FanForge-windows-x64-untested
+          path: dist/FanForge.exe
+          if-no-files-found: error
