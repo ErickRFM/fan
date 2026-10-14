@@ -11,11 +11,6 @@ internal sealed class AsusAcpiControlBackend : IFanControlBackend, IFanTelemetry
 {
     public string Name => "AsusACPI (ATKACPI)";
 
-    // G-Helper internal performance bases.
-    const int Balanced = 0;
-    const int Turbo = 1;
-    const int Silent = 2;
-
     private IntPtr _handle;
     private bool _disposed;
 
@@ -68,9 +63,10 @@ internal sealed class AsusAcpiControlBackend : IFanControlBackend, IFanTelemetry
         if (request.PwmPercentages is { Count: > 0 } || request.FanCurves is { Count: > 0 })
             return new ControlResult(false, "Curvas PWM no soportadas por ATKACPI en este modelo.");
 
-        int? target = MapProfile(request.Profile);
+        // Deliberately reject unsupported Manual/Max/Auto: this firmware offers three profiles.
+        int? target = FanPolicy.VivoBookProfileWireMode(request.Profile);
         if (target is null)
-            return new ControlResult(true, "Perfil Auto: sin escritura (controlado por ASUS).");
+            return new ControlResult(false, "Perfil no disponible: este equipo solo admite Silencioso, Estándar y Rendimiento.");
 
         if (!Open())
             return new ControlResult(false, "No se pudo abrir ATKACPI.");
@@ -78,33 +74,23 @@ internal sealed class AsusAcpiControlBackend : IFanControlBackend, IFanTelemetry
         try
         {
             int before = AsusAcpiNative.DeviceGet(_handle, AsusAcpiNative.VivoBookMode);
-            int status = AsusAcpiNative.DeviceSet(_handle, AsusAcpiNative.VivoBookMode, Swap(target.Value));
+            if (before < 0)
+                return new ControlResult(false, "VivoBookMode no disponible: se evitó la escritura.");
+            int status = AsusAcpiNative.DeviceSet(_handle, AsusAcpiNative.VivoBookMode, target.Value);
             int after = AsusAcpiNative.DeviceGet(_handle, AsusAcpiNative.VivoBookMode);
-            bool changed = LowMode(after) == Swap(target.Value);
-            return new ControlResult(changed,
-                $"Perfil {request.Profile}: raw {before} -> {after}, status={status}, verificado={changed}");
+            bool verified = FanPolicy.VivoBookProfileConfirmed(after, target.Value);
+            return new ControlResult(verified,
+                $"Perfil {request.Profile}: raw {before} -> {after}, status={status}, verificado={verified}. No indica PWM fijo.");
+        }
+        catch (Exception ex)
+        {
+            return new ControlResult(false, "Error de comunicación ATKACPI: " + ex.Message);
         }
         finally { Close(); }
     }
 
     public Task<ControlResult> RestoreAutomaticAsync(CancellationToken cancellationToken) =>
         ApplyAsync(new FanControlRequest(FanProfile.Standard, null, null), cancellationToken);
-
-    static int? MapProfile(FanProfile profile) => profile switch
-    {
-        FanProfile.Auto => null,
-        FanProfile.Whisper => Silent,
-        FanProfile.Standard => Balanced,
-        FanProfile.Performance => Turbo,
-        FanProfile.Max => Turbo,
-        FanProfile.Manual => null,
-        _ => null
-    };
-
-    // Device encoding is inverted for Turbo/Silent relative to internal bases.
-    static int Swap(int mode) => FanPolicy.VivoBookWireMode(mode);
-
-    static int LowMode(int raw) => raw & 0xFFFF;
 
     bool Open()
     {

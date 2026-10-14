@@ -40,3 +40,11 @@
 - [ ] Empaquetado instalador firmado.
 
 Nunca declarar compatibilidad real sin mediciones en el equipo físico.
+
+## v0.5 — Interfaz y control por capacidades
+- [x] Evitar estado falso de Perfil Máximo = 100% (mismo código que Rendimiento).
+- [x] Mostrar tarjetas CPU/GPU con rpm ACPI aunque HealthyTable esté bloqueado.
+- [x] Proteger confirmación de escritura de perfil frente a sentinelas negativos.
+- [x] Aplicar control de perfiles solo cuando el hardware declare soporte.
+- [ ] Validar en M3500QC real que cada modo solicitado se acepta y que las RPM cambian según temperatura.
+- [ ] Investigar otra vía OEM oficialmente admitida para control manual; ATKACPI no expone curvas/PWM en este BIOS.
