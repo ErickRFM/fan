@@ -1,3 +1,10 @@
+## Preparación de distribución firmada (posterior a v0.9)
+- Workflow manual en GitHub Actions, limitado a main, para Microsoft Artifact Signing mediante OIDC.
+- Comprueba pruebas, firma Authenticode y Windows SDK SignTool; no publica si falta certificado o si falla validación.
+- Empaquetador MSIX acepta EXE previamente firmado y editor real del certificado; artefactos ZIP/MSIX firmados más hashes SHA256.
+- Alternativa local con certificado OV público y clave protegida para regiones no habilitadas para Artifact Signing Public Trust; verifica ZIP/MSIX antes de distribución.
+- **Sin firma real en esta entrega:** requiere credenciales Microsoft Entra, perfil de certificado de confianza y ejecución manual del usuario; no cambia controladores ni PWM.
+
 ## v0.9.0 — Motor FanSpeed, telemetría WMI defensiva y centro de control (P11–P20)
 - **Motor FanSpeed (Core):** `FanSpeedEngine` orquesta varios backends con un único canal de escritura serializado y separa *detección / verificación / solicitud / respuesta / RPM medidas* (`FanSpeedState`: Unsupported → AvailableUnverified → Ready → Applying → AppliedUnverified → Verified → Restoring → Restored → Failed). Una operación **nunca se presenta como completada** si no está confirmada físicamente (`Accepted` ≠ `Confirmed`). Guarda de concurrencia CPU/GPU, `EvaluateSafetyAsync` (restauración preventiva) y registro de auditoría.
 - **Contratos y verificación:** `FanSpeedCapabilities` distingue `Detected`/`Unverified` de `Verified`; `FanTarget` (CPU/GPU/ambos); `IFanSpeedBackend`; `SimulatedFanSpeedBackend` para pruebas sin hardware. Reglas de seguridad en `FanPolicy` (rango 70–100%, histéresis de RPM).

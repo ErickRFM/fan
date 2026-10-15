@@ -1,0 +1,159 @@
+name: FanForge signed Windows distribution
+
+# Releases are manual and only from protected main.
+# No pull_request_target, untrusted PR code, or automatic signing.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Four-part MSIX version (e.g. 0.9.1.0)"
+        required: true
+        default: "0.9.1.0"
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: fanforge-trusted-signing
+  cancel-in-progress: false
+
+jobs:
+  sign-and-package:
+    name: Sign executable and MSIX
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    environment: fanforge-signing
+    env:
+      FANFORGE_VERSION: ${{ inputs.version }}
+      SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+      SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+      CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Validate release settings
+        shell: pwsh
+        run: |
+          if ($env:FANFORGE_VERSION -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw 'MSIX version must have exactly four integer components.'
+          }
+          foreach ($name in @('SIGNING_ENDPOINT', 'SIGNING_ACCOUNT', 'CERT_PROFILE')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing GitHub environment secret: $name"
+            }
+          }
+
+      - name: Run full policy tests
+        shell: pwsh
+        run: |
+          dotnet run --project ./FanForge.Tests/FanForge.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed; nothing will be signed.' }
+
+      - name: Publish unsigned exe to staging
+        shell: pwsh
+        run: |
+          dotnet publish ./FanForge.Win/FanForge.Win.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o ./dist/signed
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
+          if (-not (Test-Path ./dist/signed/FanForge.exe)) { throw 'Missing published FanForge.exe.' }
+
+      - name: Azure login using OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign executable with Microsoft Artifact Signing
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.CERT_PROFILE }}
+          files: ${{ github.workspace }}\dist\signed\FanForge.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify exe signature and discover MSIX publisher
+        shell: pwsh
+        run: |
+          ./scripts/verificar-firma.ps1 -Path ./dist/signed/FanForge.exe
+          $signature = Get-AuthenticodeSignature -LiteralPath ./dist/signed/FanForge.exe
+          $subject = $signature.SignerCertificate.Subject
+          if ([string]::IsNullOrWhiteSpace($subject) -or $subject -match "[`r`n]") {
+            throw 'Invalid signing certificate publisher subject.'
+          }
+          "SIGNER_PUBLISHER=$subject" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build MSIX using the signed exe and real certificate publisher
+        shell: pwsh
+        run: |
+          ./scripts/empaquetar-msix.ps1 -SkipPublish -SourceDir ./dist/signed -Publisher $env:SIGNER_PUBLISHER -Version $env:FANFORGE_VERSION
+          if (-not (Test-Path ./dist/msix/FanForge.msix)) {
+            throw 'Windows SDK MakeAppx was unavailable or packaging failed.'
+          }
+          [xml]$manifest = Get-Content ./dist/msix/layout/AppxManifest.xml -Raw
+          $ns = [System.Xml.XmlNamespaceManager]::new($manifest.NameTable)
+          $ns.AddNamespace('f', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+          $publisher = $manifest.SelectSingleNode('/f:Package/f:Identity', $ns).GetAttribute('Publisher')
+          if ($publisher -cne $env:SIGNER_PUBLISHER) { throw 'MSIX publisher does not match certificate.' }
+
+      - name: Sign MSIX
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ env.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.CERT_PROFILE }}
+          files: ${{ github.workspace }}\dist\msix\FanForge.msix
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify both signatures using Windows SDK
+        shell: pwsh
+        run: |
+          ./scripts/verificar-firma.ps1 -Path ./dist/signed/FanForge.exe
+          $tool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if ($tool) { $signTool = $tool.Source }
+          else {
+            $signTool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $signTool) { throw 'Windows SDK SignTool.exe not found; cannot verify MSIX signature.' }
+          & $signTool verify /pa /v ./dist/signed/FanForge.exe
+          if ($LASTEXITCODE -ne 0) { throw 'EXE Authenticode verification failed.' }
+          & $signTool verify /pa /v ./dist/msix/FanForge.msix
+          if ($LASTEXITCODE -ne 0) { throw 'MSIX signature verification failed.' }
+
+      - name: Package signed distribution and hashes
+        shell: pwsh
+        run: |
+          Compress-Archive -LiteralPath ./dist/signed/FanForge.exe -DestinationPath ./dist/FanForge-signed-win-x64.zip -Force
+          $files = @('./dist/FanForge-signed-win-x64.zip', './dist/msix/FanForge.msix')
+          $lines = foreach ($file in $files) {
+            $hash = Get-FileHash -LiteralPath $file -Algorithm SHA256
+            "$($hash.Hash)  $(Split-Path $file -Leaf)"
+          }
+          $lines | Set-Content ./dist/SHA256SUMS.txt -Encoding Ascii
+
+      - name: Upload ONLY signed and verified artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: FanForge-signed-${{ inputs.version }}
+          path: |
+            dist/FanForge-signed-win-x64.zip
+            dist/msix/FanForge.msix
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30

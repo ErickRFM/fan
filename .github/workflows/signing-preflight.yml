@@ -1,0 +1,66 @@
+name: Signing tooling preflight
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/signed-release.yml'
+      - '.github/workflows/signing-preflight.yml'
+      - 'scripts/firmar-distribucion-local.ps1'
+      - 'scripts/verificar-firma.ps1'
+      - 'scripts/empaquetar-msix.ps1'
+      - 'docs/WINDOWS-SIGNING.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/signed-release.yml'
+      - '.github/workflows/signing-preflight.yml'
+      - 'scripts/firmar-distribucion-local.ps1'
+      - 'scripts/verificar-firma.ps1'
+      - 'scripts/empaquetar-msix.ps1'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Parse scripts and fail on unsigned files
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Parse PowerShell scripts without running signing
+        shell: pwsh
+        run: |
+          $paths = @(
+            'scripts/firmar-distribucion-local.ps1',
+            'scripts/verificar-firma.ps1',
+            'scripts/empaquetar-msix.ps1'
+          )
+          foreach ($path in $paths) {
+            $tokens = $null
+            $errors = $null
+            $null = [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$path : $_" }
+              throw "PowerShell syntax errors in $path"
+            }
+            Write-Host "PowerShell syntax OK: $path"
+          }
+
+      - name: Assert unsigned files are rejected
+        shell: pwsh
+        run: |
+          $rejected = $false
+          try {
+            ./scripts/verificar-firma.ps1 -Path ./README.md
+          }
+          catch {
+            $rejected = $true
+          }
+          if (-not $rejected) {
+            throw 'Signature verifier accepted an unsigned file.'
+          }
+          Write-Host 'Unsigned file correctly rejected.'

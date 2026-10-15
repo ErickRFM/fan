@@ -14,9 +14,11 @@
 #>
 param(
     [string]$Configuration = 'Release',
-    [string]$Version = '0.8.0.0',
+    [ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$Version = '0.8.0.0',
     [string]$OutputDir = (Join-Path $PSScriptRoot '..\dist\msix'),
-    [switch]$SkipPublish
+    [switch]$SkipPublish,
+    [string]$SourceDir,
+    [string]$Publisher
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,7 +29,13 @@ $manifestSource = Join-Path $root 'packaging\msix\AppxManifest.xml'
 if (Test-Path -LiteralPath $layout) { Remove-Item -LiteralPath $layout -Recurse -Force }
 New-Item -ItemType Directory -Path $layout -Force | Out-Null
 
-if (-not $SkipPublish) {
+if ($SkipPublish) {
+    if ([string]::IsNullOrWhiteSpace($SourceDir) -or -not (Test-Path -LiteralPath (Join-Path $SourceDir 'FanForge.exe'))) {
+        throw 'SkipPublish requires -SourceDir containing the signed FanForge.exe.'
+    }
+    Copy-Item -LiteralPath (Join-Path $SourceDir 'FanForge.exe') -Destination (Join-Path $layout 'FanForge.exe')
+}
+else {
     Write-Host 'Publishing FanForge (win-x64, self-contained, single-file)...'
     & dotnet publish (Join-Path $root 'FanForge.Win\FanForge.Win.csproj') -c $Configuration -r win-x64 `
         --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o $layout
@@ -39,7 +47,18 @@ if (-not $SkipPublish) {
 $manifestText = Get-Content -LiteralPath $manifestSource -Raw
 $manifestText = [System.Text.RegularExpressions.Regex]::Replace(
     $manifestText, 'Version="\d+\.\d+\.\d+\.\d+"', "Version=`"$Version`"")
-Set-Content -LiteralPath (Join-Path $layout 'AppxManifest.xml') -Value $manifestText -Encoding UTF8
+if (-not [string]::IsNullOrWhiteSpace($Publisher)) {
+    [xml]$manifestXml = $manifestText
+    $namespace = New-Object System.Xml.XmlNamespaceManager($manifestXml.NameTable)
+    $namespace.AddNamespace('f', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+    $identity = $manifestXml.SelectSingleNode('/f:Package/f:Identity', $namespace)
+    if ($null -eq $identity) { throw 'Missing Identity in MSIX manifest.' }
+    $identity.SetAttribute('Publisher', $Publisher)
+    $manifestXml.Save((Join-Path $layout 'AppxManifest.xml'))
+}
+else {
+    Set-Content -LiteralPath (Join-Path $layout 'AppxManifest.xml') -Value $manifestText -Encoding UTF8
+}
 
 & (Join-Path $PSScriptRoot 'verificar-msix.ps1') `
     -Manifest (Join-Path $layout 'AppxManifest.xml') -AssetsDir (Join-Path $layout 'Assets')
