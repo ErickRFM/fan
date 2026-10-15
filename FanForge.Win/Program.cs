@@ -21,6 +21,9 @@ internal static class Program
         if (args.Length == 1 && args[0] == "--hardware-diagnose")
             return HardwareDiagnose();
 
+        if (args.Length == 1 && args[0] == "--diagnose-driver")
+            return DiagnoseDriver();
+
         if (args.Length == 2 && args[0] == "--set-profile")
             return SetProfile(args[1]);
 
@@ -113,6 +116,26 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine("hardware-diagnose fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>Read-only ASUS driver/service diagnosis; never starts, stops or reconfigures anything.</summary>
+    private static int DiagnoseDriver()
+    {
+        AttachConsole();
+        Report("FanForge --diagnose-driver (solo lectura; no modifica drivers)");
+        try
+        {
+            foreach (var line in DriverDiagnostics.Describe()) Report(line);
+            Report("El control manual PWM requiere que la cadena OEM (AsusSAIO/System Control Interface) " +
+                   "esté operativa. FanForge no modifica drivers ni el EC.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("diagnose-driver fallo: " + ex.GetType().Name + ": " + ex.Message);
             Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
             return 2;
         }
