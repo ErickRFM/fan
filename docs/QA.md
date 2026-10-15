@@ -1,4 +1,4 @@
-# QA — Resultados automatizados (v1.0)
+# QA — Resultados automatizados (v1.1)
 
 ## Entorno de ejecución
 - OS: Microsoft Windows 11 Home Single Language, 10.0.26300, x64.
@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **268/268 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
+Resultado: **291/291 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -39,6 +39,7 @@ Resultado: **268/268 PASAN** (la accesibilidad de la UI no aporta pruebas unitar
 - **Recuperación ampliada**: ciclo completo aplicar → crash → recuperar, registro `Unchanged` cuando el firmware ya coincide (limpiando el registro), retención del registro si el registro es ilegible, rechazo de valores fuera de rango y de versiones desconocidas del códec.
 - **Códec WMI** (`AsusWmiCodec`): decodificación del bit de validez `0x10000` (casos `0x0001002D→4500`, `0x00010032→5000`, `0x00010024→3600`, `0x00010026→3800`), rechazo de centinelas (`0xFFFFFFFE`, `0xFFFFFFFF`) y de payloads fuera de rango (>120), y flag de validez ausente.
 - **Motor FanSpeed** (`FanSpeedEngine`, `SimulatedFanSpeedBackend`, `FakeSpeedBackend`): detección con backend verificado; aplicación confirmada vs. aceptada-sin-confirmar (nunca se reporta completa si no hay confirmación); promoción a `Verified` solo con aumento de RPM; rechazo de porcentaje fuera de rango; `Unsupported` cuando no hay PWM verificado; bloqueo de escritura ante lecturas incoherentes; degradación a `Unsupported` si la detección falla; restauración que limpia el estado manual; y pasada de seguridad sin control manual.
+- **Evidencia y veredicto (v1.1)** (`FanEvidence`): cabecera y fila CSV exactas, escape de comas, huecos numéricos en blanco, detección de canal expuesto (Unsupported/Detected/Unverified), veredicto que **nunca** llega a `Verified` sin ≥2 confirmaciones de RPM **y** restauración completa (`Blocked`/`InsufficientEvidence`/`RpmResponded`/`Verified`) y manifiesto JSON con `control_path_exposed`, `verdict` y `pwm_cpu` por backend.
 - **Control por ventilador (v1.0)** (`PerFanSpeedBackend`): capacidades CPU/GPU independientes; `Both` rechazado si un ventilador no es controlable; aplicación CPU independiente de GPU (y viceversa); *ambos 100 %*; estado por ventilador (`ManualCpuPercent`/`ManualGpuPercent`); auditoría de `RequestedPercent`; restauración que limpia ambos ventiladores; `Compatible` para ruta no verificada (nunca escribible); `DetectedUnverified` para backend solo-telemetría; y restauración preventiva ante 0 RPM en control manual.
 
 Ninguna prueba toca hardware; los backends son mocks (`FakeBackend`, `FakeProfileChannel`, `FakeProfileStore`) y el reloj es determinista (`ManualTime`).
@@ -126,3 +127,12 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 - **UI**: pestaña FanSpeed responsiva (reflujo de texto por ancho) y gating por ventilador; revisada a 100/125/150/200 % DPI.
 - **M3500QC**: sigue **sin canal PWM verificado** (`HealthyTable_FanCounts()=-1`, curvas ATKACPI `-65536`); el control manual permanece bloqueado. No se forzó el EC ni se modificaron drivers.
 - Pruebas: **268/268** (antes 252); Release 0 avisos / 0 errores.
+
+## v1.1 — Evidencia de solo lectura y protocolo de validación física
+- **Evidencia** (`FanEvidence`): hoja CSV determinista por backend + manifiesto JSON y veredicto. Probado que el veredicto **nunca** alcanza `Verified` sin un canal expuesto, ≥2 confirmaciones de RPM y restauración completa; `Blocked` sin canal; `InsufficientEvidence` con <2 confirmaciones; `RpmResponded` cuando falta cualquier parte de la restauración.
+- **CLI** `--fan-evidence <dir> [--seconds N]`: escribe CSV/JSON y veredicto; **no** escribe PWM (por diseño `confirmedReadings = 0`, así que jamás declara `Verified`). No smoke-tested en esta sesión por requerir elevación (manifiesto `requireAdministrator`); cubierto por pruebas unitarias puras.
+- **Script** `scripts/recolectar-evidencia-fan.ps1`: verificado sintácticamente (parser de PowerShell). Solo invoca comandos de solo lectura; omite lecturas si no hay elevación.
+- **Protocolo** `docs/DIRECT-FAN-CONTROL-VALIDATION.md`: revisado contra `FanEvidence.Evaluate` y `FanPolicy` (ventana 70–100 %, histéresis 150 RPM).
+- **Corrección**: `FanSpeedBackends.cs` vuelve a UTF-8 sin BOM (se eliminó mojibake de v1.0); `FanForge.Tests/Program.cs` sin BOM.
+- **M3500QC**: veredicto `Blocked`. No se ejecutó ninguna prueba física ni se declaró PWM compatible.
+- Pruebas: **291/291** (antes 268); Release 0 avisos / 0 errores.
