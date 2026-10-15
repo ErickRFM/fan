@@ -179,9 +179,10 @@ internal sealed class WmiFanSpeedBackend : IFanSpeedBackend
             foreach (var instance in searcher.Get())
             {
                 using var mo = (ManagementObject)instance;
-                if (InvokeFan(mo, deviceId) is uint raw)
+                if (InvokeFan(mo, deviceId) is uint raw &&
+                    AsusWmiCodec.DecodeFanRpm(raw) is int rpm)
                 {
-                    return AsusWmiCodec.DecodeFanRpm(raw);
+                    return rpm;
                 }
             }
         }
@@ -196,17 +197,18 @@ internal sealed class WmiFanSpeedBackend : IFanSpeedBackend
     {
         try
         {
-            object[] args = { deviceId };
-            object? result = mo.InvokeMethod("DSTS", args);
-            if (ToUInt(result) is uint direct)
+            // DSTS returns the RPM in its named OUT parameter "device_status".
+            // The object[] overload returns the method return value, not the
+            // device_status value which PowerShell's Invoke-CimMethod exposes.
+            using var inputs = mo.GetMethodParameters("DSTS");
+            if (inputs is null)
             {
-                return direct;
+                return null;
             }
 
-            if (args.Length > 0 && ToUInt(args[0]) is uint mutated && mutated != deviceId)
-            {
-                return mutated;
-            }
+            inputs["Device_ID"] = deviceId;
+            using var outputs = mo.InvokeMethod("DSTS", inputs, null);
+            return outputs is null ? null : ToUInt(outputs["device_status"]);
         }
         catch (ManagementException) { }
         catch (Exception) { }
