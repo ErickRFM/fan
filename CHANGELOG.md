@@ -2,6 +2,7 @@
 - Workflow manual en GitHub Actions, limitado a main, para Microsoft Artifact Signing mediante OIDC.
 - Comprueba pruebas, firma Authenticode y Windows SDK SignTool; no publica si falta certificado o si falla validación.
 - Empaquetador MSIX acepta EXE previamente firmado y editor real del certificado; artefactos ZIP/MSIX firmados más hashes SHA256.
+- Alternativa local con certificado OV público y clave protegida para regiones no habilitadas para Artifact Signing Public Trust; verifica ZIP/MSIX antes de distribución.
 - **Sin firma real en esta entrega:** requiere credenciales Microsoft Entra, perfil de certificado de confianza y ejecución manual del usuario; no cambia controladores ni PWM.
 
 ## v0.9.0 — Motor FanSpeed, telemetría WMI defensiva y centro de control (P11–P20)
