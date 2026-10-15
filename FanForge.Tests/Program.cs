@@ -132,6 +132,8 @@ Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Max) is null, "Max unsupporte
 Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Manual) is null, "manual unsupported on VivoBook ACPI");
 Check(FanPolicy.VivoBookProfileWireMode(FanProfile.Auto) is null, "Auto requires explicit restore");
 Check(FanPolicy.VivoBookProfileConfirmed(131074, 2), "positive profile readback verifies");
+Check(FanPolicy.VivoBookProfileConfirmed(131073, 1), "whisper readback with 0x20000 flag verifies");
+Check(FanPolicy.VivoBookProfileConfirmed(131072, 0), "standard readback with 0x20000 flag verifies");
 Check(FanPolicy.VivoBookProfileConfirmed(0, 0), "valid balanced readback verifies");
 Check(!FanPolicy.VivoBookProfileConfirmed(-65536, 0), "reject failed readback even for balanced");
 Check(!FanPolicy.VivoBookProfileConfirmed(131073, 2), "reject mismatched readback");
