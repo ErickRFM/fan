@@ -57,10 +57,10 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [x] Handles ATKACPI locales por operación; se evita el campo compartido por lecturas y escrituras.
 - [x] Telemetría no declara `Supported` si el driver/ventiladores no responden.
 - [x] Bloqueo de selección de perfil mientras hay una sesión PWM manual.
-- [ ] Validar perfil y restauración en VivoBook real; no se ejecutaron escrituras de hardware.
+- [x] Perfil y restauración validados en el M3500QC real el 2026-10-15: Silent/Standard/Performance aceptados (lectura posterior) y restaurado el modo original (autorizado, reversible). Ver `docs/HARDWARE-TEST.md`.
 
 ## Auditoría de software v0.6 — entrega
-- [x] Tests y compilación v0.6 verificados (115 PASS; PR #13).
+- [x] Tests y compilación v0.6 verificados (117 PASS tras la integración del fix de lectura ATKACPI; PR #13/#15).
 - [x] Guardas ATKACPI y firma nativa en ruta WinIO.
 - [ ] Verificación presencial de firma de AsusWinIO64.dll en la instalación real.
 - [ ] Confirmar cambios de perfiles ASUS comparando RPM con ProArt.
