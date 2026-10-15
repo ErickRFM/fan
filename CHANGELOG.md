@@ -1,3 +1,11 @@
+## v0.6.0 — Auditoría de interoperabilidad y seguridad (integrado en main, pendiente de validación física)
+- Authenticode usa `WinVerifyTrust` para verificar integridad/cadena offline; ya no confunde el texto CN con firma válida. Bloquea carga de DLL OEM no validada.
+- Guardas de modelo en ATKACPI y CLI.
+- Handles por operación para evitar cierres cruzados durante sondeo/cambio de perfil.
+- Detección de errores reales en capacidades; lectura no equivale a escritura.
+- Limpieza de handles en diagnóstico y bloqueo de perfiles durante PWM manual.
+- Pruebas de política ampliadas; ver CI.
+
 ## v0.5.0 — Claridad de control ASUS y lectura CPU/GPU (en revisión)
 - Tarjetas de telemetría CPU y GPU cuando HealthyTable está indisponible.
 - PWM no disponible visualmente deshabilitado; mensaje de diagnóstico y tooltips.
@@ -21,7 +29,7 @@
 - **Fix de robustez:** un endpoint ATKACPI no soportado (p. ej. temperatura) hace fallar `DeviceIoControl` e invalida el handle; `ReadAsync` ahora lee cada valor de forma tolerante (`SafeGet`), de modo que las RPM válidas no se pierden por una temperatura fallida.
 - **Diagnóstico:** `--hardware-diagnose` reporta el error por método (antes abortaba en el primero) y libera el handle de control antes de la lectura RAW.
 - **Validación física (M3500QC, autorizada):** `--set-profile` confirmado para Silent/Standard/Performance con lectura posterior y retorno al modo original; codificación `raw = 131072 | wireMode`.
-- **Pruebas:** 110 comprobaciones (antes 108): lectura de perfil con el flag `0x20000`.
+- **Pruebas:** lectura de perfil con el flag `0x20000` (total del proyecto tras v0.6: 117).
 
 ## 0.4.6 — Accesibilidad y atajos de teclado
 - **DPI:** modo `PerMonitorV2` en el proyecto y `AutoScaleMode.Dpi` en el formulario; la disposición escala a 125–200 %.

@@ -70,9 +70,16 @@ Check(OemLibraryPolicy.TrustedSigner("CN=ASUS"), "trusts asus signer short");
 Check(!OemLibraryPolicy.TrustedSigner("CN=Evil Corp"), "rejects foreign signer");
 Check(!OemLibraryPolicy.TrustedSigner(""), "rejects empty signer");
 Check(OemLibraryPolicy.TrustedSigner(null) == false, "rejects null signer");
-Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "ASUSTeK").Contains("firmante ASUS"), "describe names asus signer");
-Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "Evil Corp").Contains("no ASUS"), "describe flags foreign signer");
-Check(OemLibraryPolicy.Describe(new Version(0, 0, 0, 0), "ASUS").Contains("no soportada"), "describe flags unsupported version");
+Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "CN=ASUSTeK Computer Inc.").Contains("firmante ASUS"), "describe names asus signer");
+Check(OemLibraryPolicy.Describe(new Version(3, 1, 0, 0), "CN=Evil Corp").Contains("no autorizado"), "describe flags foreign signer");
+Check(OemLibraryPolicy.Describe(new Version(0, 0, 0, 0), "CN=ASUS").Contains("no soportada"), "describe flags unsupported version");
+Check(!OemLibraryPolicy.TrustedSigner("CN=Untrusted ASUS Drivers"), "reject signer containing ASUS as substring");
+Check(!OemLibraryPolicy.TrustedSigner("O=ASUSTeK Computer Inc., CN=Fake ASUS LLC"), "reject fake ASUS CN");
+Check(!OemLibraryPolicy.TrustedSigner("ASUSTeK"), "reject non-CN signer text");
+Check(OemLibraryPolicy.MayLoad(new Version(1, 1, 4), "CN=ASUSTeK Computer Inc.", true), "load only validated signature");
+Check(!OemLibraryPolicy.MayLoad(new Version(1, 1, 4), "CN=ASUSTeK Computer Inc.", false), "reject cryptographically invalid DLL");
+Check(!OemLibraryPolicy.MayLoad(new Version(1, 1, 4), "CN=Fake ASUS Drivers", true), "reject different signer despite valid signature");
+Check(!OemLibraryPolicy.MayLoad(new Version(0, 0, 0, 0), "CN=ASUS", true), "reject obsolete version even when signed");
 
 // ---- Policy: ATKACPI decode ----
 Check(FanPolicy.AcpiFanRpm(53) == 5300, "acpi fan raw 53 -> 5300");

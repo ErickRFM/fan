@@ -51,3 +51,17 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [x] Validado en M3500QC real: Silent/Standard/Performance se aceptan y se confirman por lectura (reversible).
 - [ ] Medir de forma sostenida que las RPM siguen la temperatura en cada modo (comparar con ProArt Creator Hub).
 - [ ] Investigar otra vía OEM oficialmente admitida para control manual; ATKACPI no expone curvas/PWM en este BIOS.
+
+## v0.6 — Hardening de interoperabilidad
+- [x] Guardas de modelo en backend de perfiles y comandos CLI, además del controlador PWM.
+- [x] Handles ATKACPI locales por operación; se evita el campo compartido por lecturas y escrituras.
+- [x] Telemetría no declara `Supported` si el driver/ventiladores no responden.
+- [x] Bloqueo de selección de perfil mientras hay una sesión PWM manual.
+- [ ] Validar perfil y restauración en VivoBook real; no se ejecutaron escrituras de hardware.
+
+## Auditoría de software v0.6 — entrega
+- [x] Tests y compilación v0.6 verificados (115 PASS; PR #13).
+- [x] Guardas ATKACPI y firma nativa en ruta WinIO.
+- [ ] Verificación presencial de firma de AsusWinIO64.dll en la instalación real.
+- [ ] Confirmar cambios de perfiles ASUS comparando RPM con ProArt.
+- [ ] PWM manual y retorno tras suspensión/crash pendientes de medición.

@@ -91,15 +91,18 @@ internal static class Program
                    " pwm=" + controlCaps.SupportsPwmDirect);
             if (AsusAcpiNative.TryOpen(out var rawHandle))
             {
-                ReportRaw(rawHandle, "CPU_Fan(0x00110013)", AsusAcpiNative.CPU_Fan);
-                ReportRaw(rawHandle, "GPU_Fan(0x00110014)", AsusAcpiNative.GPU_Fan);
-                ReportRaw(rawHandle, "VivoBookMode(0x00110019)", AsusAcpiNative.VivoBookMode);
-                ReportRaw(rawHandle, "Temp_CPU(0x00120094)", AsusAcpiNative.Temp_CPU);
-                ReportRaw(rawHandle, "Temp_GPU(0x00120097)", AsusAcpiNative.Temp_GPU);
-                ReportRaw(rawHandle, "PerformanceMode(0x00120075)", AsusAcpiNative.PerformanceMode);
-                ReportRaw(rawHandle, "DevsCPUFanCurve(0x00110024)", AsusAcpiNative.DevsCPUFanCurve);
-                ReportRaw(rawHandle, "DevsGPUFanCurve(0x00110025)", AsusAcpiNative.DevsGPUFanCurve);
-                AsusAcpiNative.Close(rawHandle);
+                try
+                {
+                    ReportRaw(rawHandle, "CPU_Fan(0x00110013)", AsusAcpiNative.CPU_Fan);
+                    ReportRaw(rawHandle, "GPU_Fan(0x00110014)", AsusAcpiNative.GPU_Fan);
+                    ReportRaw(rawHandle, "VivoBookMode(0x00110019)", AsusAcpiNative.VivoBookMode);
+                    ReportRaw(rawHandle, "Temp_CPU(0x00120094)", AsusAcpiNative.Temp_CPU);
+                    ReportRaw(rawHandle, "Temp_GPU(0x00120097)", AsusAcpiNative.Temp_GPU);
+                    ReportRaw(rawHandle, "PerformanceMode(0x00120075)", AsusAcpiNative.PerformanceMode);
+                    ReportRaw(rawHandle, "DevsCPUFanCurve(0x00110024)", AsusAcpiNative.DevsCPUFanCurve);
+                    ReportRaw(rawHandle, "DevsGPUFanCurve(0x00110025)", AsusAcpiNative.DevsGPUFanCurve);
+                }
+                finally { AsusAcpiNative.Close(rawHandle); }
             }
             Report("Hardware-diagnose completado; control manual NO activado.");
             return 0;
@@ -126,7 +129,12 @@ internal static class Program
         Report("FanForge --set-profile " + name);
         if (!Enum.TryParse<FanProfile>(name, ignoreCase: true, out var profile))
         {
-            Report("Perfil invalido. Usa: Auto, Whisper, Standard, Performance, Max.");
+            Report("Perfil invalido. Usa: Whisper, Standard, Performance.");
+            return 3;
+        }
+        if (FanPolicy.VivoBookProfileWireMode(profile) is null)
+        {
+            Report("Perfil no soportado por este modelo. Usa: Whisper, Standard, Performance.");
             return 3;
         }
         try
