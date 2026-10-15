@@ -51,6 +51,9 @@ internal static class Program
         if (args.Length == 1 && args[0] == "--fan-research-report")
             return FanResearchReport();
 
+        if (args.Length >= 2 && args[0] == "--fan-evidence")
+            return FanEvidenceBundle(args.Skip(1).ToArray());
+
         using var mutex = new Mutex(true, @"Local\FanForge-M3500QC", out bool acquired);
         if (!acquired)
         {
@@ -557,6 +560,115 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine("fan-research-report fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>
+    /// Read-only evidence bundle for the physical validation protocol: writes a timestamped CSV of
+    /// per-backend capabilities/RPM/temperatures plus a JSON manifest, and prints the decision verdict.
+    /// It never enters test mode, writes PWM or changes any profile, so it is safe to run at any time.
+    /// </summary>
+    private static int FanEvidenceBundle(string[] args)
+    {
+        AttachConsole();
+        Report("FanForge --fan-evidence (solo lectura; no escribe PWM)");
+        string directory = Environment.CurrentDirectory;
+        int seconds = 0;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--seconds" && i + 1 < args.Length && int.TryParse(args[i + 1], out int s))
+            {
+                seconds = Math.Clamp(s, 0, 3600);
+                i++;
+            }
+            else if (!args[i].StartsWith("--", StringComparison.Ordinal))
+            {
+                directory = args[i];
+            }
+        }
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            string stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+            string model = AsusHardware.Model();
+            string bios = AsusHardware.BiosVersion();
+            var rows = new List<FanEvidenceObservation>();
+
+            using var engine = new FanSpeedEngine(FanSpeedBackends.CreateDefault());
+            var caps = engine.DetectAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Report("Estado del motor: " + engine.State);
+
+            foreach (var backend in engine.Backends)
+            {
+                FanSpeedCapabilities? cap = caps.FirstOrDefault(c => c.Backend == backend.Name);
+                FanSpeedReading reading;
+                try { reading = backend.ReadAsync(CancellationToken.None).GetAwaiter().GetResult(); }
+                catch (Exception ex)
+                {
+                    reading = FanSpeedReading.Invalid(backend.Name + ": " + ex.Message, DateTimeOffset.UtcNow);
+                }
+
+                rows.Add(new FanEvidenceObservation(
+                    DateTimeOffset.UtcNow, model, bios, backend.Name,
+                    cap?.CpuPwm ?? CapabilityLevel.Unsupported,
+                    cap?.GpuPwm ?? CapabilityLevel.Unsupported,
+                    cap?.TelemetryAvailable ?? false,
+                    reading.CpuRpm, reading.GpuRpm, reading.CpuCelsius, reading.GpuCelsius,
+                    reading.Profile, reading.Quality));
+            }
+
+            try
+            {
+                var zone = new AcpiThermalZoneTelemetry();
+                TelemetrySnapshot snap = zone.ReadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                rows.Add(new FanEvidenceObservation(
+                    DateTimeOffset.UtcNow, model, bios, zone.Name,
+                    CapabilityLevel.Unsupported, CapabilityLevel.Unsupported, true,
+                    null, null, snap.Temperatures.CpuCelsius, snap.Temperatures.GpuCelsius,
+                    "unknown", ReadingQuality.Ok));
+            }
+            catch (Exception ex)
+            {
+                Report("AVISO: zona térmica no disponible: " + ex.Message);
+            }
+
+            if (seconds > 0)
+            {
+                Report($"Muestreo de solo lectura durante {seconds}s (~1 Hz)...");
+                var end = DateTimeOffset.UtcNow.AddSeconds(seconds);
+                while (DateTimeOffset.UtcNow < end)
+                {
+                    var r = engine.ReadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    rows.Add(new FanEvidenceObservation(
+                        DateTimeOffset.UtcNow, model, bios, "engine (sampling)",
+                        CapabilityLevel.Unsupported, CapabilityLevel.Unsupported, true,
+                        r.CpuRpm, r.GpuRpm, r.CpuCelsius, r.GpuCelsius, r.Profile, r.Quality));
+                    Thread.Sleep(1000);
+                }
+            }
+
+            bool exposed = FanEvidence.ControlPathExposed(rows);
+            // Acquisition alone can never confirm a physical response: confirmedReadings is always 0 here.
+            var verdict = FanEvidence.Evaluate(rows, 0, restoreVerified: false, watchdogVerified: false, resumeVerified: false);
+
+            string csvPath = Path.Combine(directory, "fan-evidence-" + stamp + ".csv");
+            string jsonPath = Path.Combine(directory, "fan-evidence-" + stamp + ".json");
+            File.WriteAllText(csvPath, FanEvidence.Csv(rows));
+            File.WriteAllText(jsonPath, FanEvidence.ToJson(rows, verdict));
+
+            Report("Vía de control expuesta: " + (exposed ? "sí" : "no"));
+            Report("Veredicto: " + verdict + " (la captura nunca confirma PWM; requiere prueba física supervisada).");
+            Report("Evidencia CSV: " + csvPath);
+            Report("Evidencia JSON: " + jsonPath);
+            Report("Sin escritura de PWM; protocolo: docs/DIRECT-FAN-CONTROL-VALIDATION.md");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("fan-evidence fallo: " + ex.GetType().Name + ": " + ex.Message);
             Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
             return 2;
         }
