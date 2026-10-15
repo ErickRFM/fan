@@ -33,10 +33,13 @@ internal sealed class MainForm : Form
     private readonly FlowLayoutPanel _fanPanel;
     private readonly Label _status, _mode, _watchdogState, _modelLine, _biosLine, _fanCountLine, _providerLine, _temperature, _lastUpdate, _conflictLine;
     private readonly TextBox _diagnostic;
-    private readonly Button _hundred, _eighty, _apply, _automatic;
+    private readonly Button _hundred, _eighty, _apply, _automatic, _csv;
     private readonly Button _whisper, _standard, _performance;
     private readonly ToolTip _tooltips = new();
     private Label? _acpiCpuRpm, _acpiGpuRpm;
+    private TelemetryRecorder? _logRecorder;
+    private string _activeProfile = "auto";
+    private bool? _activeProfileConfirmed;
     private bool _profileSupported;
     private bool _manualAvailable;
     private readonly System.Windows.Forms.Timer _timer;
@@ -136,9 +139,10 @@ internal sealed class MainForm : Form
         _eighty = Button("TODOS 80%", ButtonNeutral, Color.White, (_, _) => All(80));
         _apply = Button("APLICAR INDIVIDUAL", ButtonNeutral, Color.White, (_, _) => Apply());
         _automatic = Button("VOLVER A ASUS", Color.FromArgb(116, 59, 63), Color.White, async (_, _) => await ReturnToAsusAsync());
+        _csv = Button("GRABAR CSV", ButtonNeutral, Color.White, (_, _) => ToggleCsv());
         footer.Controls.AddRange(new Control[]
         {
-            _hundred, _eighty, _apply, _automatic,
+            _hundred, _eighty, _apply, _automatic, _csv,
             Label("PWM manual solo con driver HealthyTable válido. No confundir porcentaje pedido con RPM. " +
                   "(Esc: volver a BIOS · F5: refrescar)", 9, Muted)
         });
@@ -160,6 +164,7 @@ internal sealed class MainForm : Form
         _tooltips.SetToolTip(_eighty, "PWM manual solo cuando HealthyTable detecte ventiladores válidos.");
         _tooltips.SetToolTip(_apply, "Este BIOS no expone curvas o PWM directo mediante ATKACPI.");
         _tooltips.SetToolTip(_automatic, "Con PWM: devolver control a BIOS. Con perfiles: volver al perfil original capturado antes del primer cambio.");
+        _tooltips.SetToolTip(_csv, "Registra RPM, temperatura, perfil y hora en un CSV para comparar con ProArt Creator Hub.");
 
         Controls.Add(center);
         Controls.Add(footer);
@@ -202,6 +207,32 @@ internal sealed class MainForm : Form
         _whisper.AccessibleName = "Perfil silencioso";
         _standard.AccessibleName = "Perfil estándar";
         _performance.AccessibleName = "Perfil rendimiento";
+        _csv.AccessibleName = "Iniciar o detener el registro CSV de telemetría";
+    }
+
+    /// <summary>Starts/stops writing the live telemetry to CSV for a reproducible comparison.</summary>
+    private void ToggleCsv()
+    {
+        if (_logRecorder is null)
+        {
+            try
+            {
+                _logRecorder = new TelemetryRecorder();
+                _csv.Text = "DETENER CSV";
+                Log("Grabación CSV iniciada: " + _logRecorder.FilePath);
+            }
+            catch (Exception ex)
+            {
+                Log("No se pudo iniciar la grabación CSV: " + ex.Message);
+            }
+        }
+        else
+        {
+            _logRecorder.Dispose();
+            _logRecorder = null;
+            _csv.Text = "GRABAR CSV";
+            Log("Grabación CSV detenida.");
+        }
     }
 
     private static Label Label(string text, float size, Color color, FontStyle style = FontStyle.Regular) =>
@@ -511,6 +542,11 @@ internal sealed class MainForm : Form
             Log((result.Success ? "Perfil original restaurado: " : "Perfil original NO restaurado: ") + result.Message);
             _mode.Text = result.Success ? "Modo: ASUS (perfil original)" : "Modo: (sin cambio)";
             _status.Text = result.Success ? "Perfil ASUS original restaurado" : "Perfil original no confirmado";
+            if (result.Success)
+            {
+                _activeProfile = "original";
+                _activeProfileConfirmed = true;
+            }
         }
         catch (Exception ex)
         {
@@ -532,6 +568,8 @@ internal sealed class MainForm : Form
             _session.Restore();
             _mode.Text = "Modo: BIOS (automático)";
             _status.Text = "ASUS conectado · BIOS automático";
+            _activeProfile = "auto";
+            _activeProfileConfirmed = null;
             Log("Restauración BIOS solicitada.");
         }
         catch (Exception ex)
@@ -549,6 +587,8 @@ internal sealed class MainForm : Form
         _tempChart.SetSeries(points.Select(p => (double?)p.CpuCelsius));
         _rpmChart.SetSeries(points.Select(p =>
             p.CpuRpm is int cpu ? (double?)cpu : p.GpuRpm is int gpu ? gpu : null));
+        if (_logRecorder != null && _history.Latest is HistoryPoint latest)
+            _logRecorder.Write(latest, _activeProfile, _activeProfileConfirmed);
     }
 
     private async Task ApplyProfile(FanProfile profile)
@@ -568,6 +608,11 @@ internal sealed class MainForm : Form
             Log((result.Success ? "Perfil " : "Perfil NO ") + profile + ": " + result.Message);
             _mode.Text = result.Success ? "Modo: " + profile : "Modo: (sin cambio)";
             _status.Text = result.Success ? "Perfil ASUS aplicado (verificado)" : "Perfil no confirmado";
+            if (result.Success)
+            {
+                _activeProfile = profile.ToString();
+                _activeProfileConfirmed = true;
+            }
         }
         catch (Exception ex)
         {
@@ -701,6 +746,7 @@ internal sealed class MainForm : Form
         try { _session?.Dispose(); } catch { }
         _acpiControl?.Dispose();
         _telemetry?.Dispose();
+        _logRecorder?.Dispose();
         _watchdog?.Dispose(); // Watchdog waits for this process to exit, then restores again.
         _timer.Dispose();
         _tooltips.Dispose();

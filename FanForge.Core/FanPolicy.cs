@@ -83,6 +83,15 @@ public static class FanPolicy
         _ => null
     };
 
+    /// <summary>Maps a wire mode back to its profile name for reporting (unknown stays explicit).</summary>
+    public static string ProfileName(int wireMode) => wireMode switch
+    {
+        0 => "Standard",
+        1 => "Whisper",
+        2 => "Performance",
+        _ => "unknown"
+    };
+
     /// <summary>Rejects invalid API sentinel values even for balanced mode (0).</summary>
     public static bool VivoBookProfileConfirmed(int raw, int wireMode) =>
         raw >= 0 && wireMode is >= 0 and <= 2 && (raw & 0xFFFF) == wireMode;

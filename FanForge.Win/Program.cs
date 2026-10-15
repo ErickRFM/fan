@@ -24,6 +24,9 @@ internal static class Program
         if (args.Length == 2 && args[0] == "--set-profile")
             return SetProfile(args[1]);
 
+        if (args.Length >= 2 && args[0] == "--log-telemetry" && int.TryParse(args[1], out int logSeconds))
+            return LogTelemetry(logSeconds, args.Length >= 3 ? args[2] : null);
+
         using var mutex = new Mutex(true, @"Local\FanForge-M3500QC", out bool acquired);
         if (!acquired)
         {
@@ -157,6 +160,48 @@ internal static class Program
     /// Best-effort repair: returns manual PWM to BIOS (may be unavailable) and restores the ASUS
     /// profile captured before FanForge changed it (recovered from the persisted record if needed).
     /// </summary>
+    /// <summary>
+    /// Read-only CSV sampler: records RPM/temperature/profile/timestamps at ~1 Hz for the given number
+    /// of seconds. It never writes PWM or changes the profile, so it is safe for the thermal comparison.
+    /// </summary>
+    private static int LogTelemetry(int seconds, string? directory)
+    {
+        AttachConsole();
+        seconds = Math.Clamp(seconds, 1, 600);
+        Report("FanForge --log-telemetry (solo lectura) durante " + seconds + "s");
+        try
+        {
+            using var manager = new FanBackendManager(
+                new IFanTelemetryProvider[] { new AsusAcpiTelemetry(), new AcpiThermalZoneTelemetry() },
+                Array.Empty<IFanControlBackend>());
+            using var recorder = new TelemetryRecorder(directory);
+            var channel = new AsusAcpiProfileChannel();
+            int? wire = FanPolicy.SupportedModel(AsusHardware.Model()) ? channel.ReadWireMode() : null;
+            string profile = wire is int w ? FanPolicy.ProfileName(w) : "unknown";
+            Report("Perfil activo: " + profile + " (wire " + (wire?.ToString() ?? "n/a") + ")");
+            Report("Archivo: " + recorder.FilePath);
+
+            var end = DateTimeOffset.UtcNow.AddSeconds(seconds);
+            int rows = 0;
+            while (DateTimeOffset.UtcNow < end)
+            {
+                var snapshot = manager.ReadBestAsync(CancellationToken.None).GetAwaiter().GetResult();
+                var point = TelemetryHistory.FromSnapshot(snapshot);
+                recorder.Write(point, profile, wire is not null);
+                rows++;
+                Thread.Sleep(1000);
+            }
+            Report($"CSV escrito: {rows} filas. Perfil confirmado por lectura: {wire is not null}.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("log-telemetry fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
     private static int RestoreNow()
     {
         AttachConsole();

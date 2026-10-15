@@ -32,7 +32,7 @@ public sealed class TelemetryHistory
     public void Add(TelemetrySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        _points.Enqueue(ToPoint(snapshot));
+        _points.Enqueue(FromSnapshot(snapshot));
         while (_points.Count > Capacity) _points.Dequeue();
     }
 
@@ -40,7 +40,8 @@ public sealed class TelemetryHistory
 
     public void Clear() => _points.Clear();
 
-    private static HistoryPoint ToPoint(TelemetrySnapshot snapshot)
+    /// <summary>Projects a snapshot onto a history point, dropping invalid RPM values.</summary>
+    public static HistoryPoint FromSnapshot(TelemetrySnapshot snapshot)
     {
         int? cpuRpm = null, gpuRpm = null;
         foreach (var rpm in snapshot.Rpms)
