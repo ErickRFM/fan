@@ -1,0 +1,72 @@
+# Empaquetado MSIX (v0.8, base)
+
+Este documento describe la **base de empaquetado MSIX** de FanForge. No afirma que un paquete sin
+firma vaya a ser aceptado por Windows: un `.msix` **sin firmar no se instala** y no evita Smart App
+Control (SAC) ni WDAC. La firma con un certificado de confianza es un paso manual del usuario y
+requiere autorización explícita (comprar/usar un certificado o publicar en la Store) que **no** se
+hace en esta sesión.
+
+## Qué hay en el repositorio
+
+| Elemento | Rol |
+| --- | --- |
+| `packaging/msix/AppxManifest.xml` | Manifiesto (identidad x64, versión de 4 partes, entrada *full trust*). |
+| `packaging/msix/Assets/*.png` | Logos placeholder (`FF`) generados por script, no identidad de marca. |
+| `scripts/New-MsixAssets.ps1` | Genera los logos de forma reproducible (sin binarios a mano). |
+| `scripts/verificar-msix.ps1` | Verifica la **estructura** del manifiesto y los recursos. Sin SDK de empaquetado. |
+| `scripts/empaquetar-msix.ps1` | Publica, prepara el *layout*, verifica y (si hay SDK) empaqueta sin firmar. |
+| `FanForge.Core/MsixPackaging.cs` | Validación del manifiesto como política comprobable por tests. |
+
+## Diseño del manifiesto
+
+- `Identity` `ProcessorArchitecture="x64"` (coincide con `RuntimeIdentifier` `win-x64`).
+- `Version` de cuatro partes (`0.8.0.0`); el script la sustituye con `-Version`.
+- `Application` `EntryPoint="Windows.FullTrustApplication"` (WinForms necesita *full trust*).
+- Capacidad `runFullTrust` (restringida: documentar si se publica en Store).
+- `TargetDeviceFamily=Windows.Desktop` (mínimo `10.0.19041.0`).
+
+## Flujo reproducible
+
+```powershell
+# 1) Solo comprobar estructura (lo que corre la CI)
+./scripts/New-MsixAssets.ps1
+powershell -NoProfile -File scripts/verificar-msix.ps1
+
+# 2) Preparar layout + empaquetar (requiere Windows SDK para MakeAppx.exe)
+./scripts/empaquetar-msix.ps1 -Version 0.8.0.0
+```
+
+Resultado:
+- Sin `MakeAppx.exe`: queda el *layout* en `dist/msix/layout` (publicación + manifiesto + assets).
+- Con `MakeAppx.exe`: además `dist/msix/FanForge.msix` **sin firmar**.
+
+## Firma (paso manual y autorizado)
+
+Un MSIX solo se instala si su firma encadena a una CA de confianza del equipo. Opciones legítimas,
+ninguna habilitada aquí:
+
+1. **Certificado de desarrollo propio** instalado en `Trusted People` (pruebas locales). No sirve
+   para distribución.
+2. **Certificado OV/EV** de una CA pública (identidad validada). De pago.
+3. **Azure Trusted Signing / Artifact Signing** (firma gestionada por Microsoft).
+
+```powershell
+# Ejemplo MERAMENTE ilustrativo; requiere un .pfx y su contraseña (no incluidos).
+signtool sign /fd SHA256 /a /f mi-certificado.pfx /p <password> dist/msix/FanForge.msix
+```
+
+## Relación con Smart App Control / WDAC
+
+- SAC solo confía en paquetes firmados por editor de confianza o con reputación; un MSIX sin firmar
+  **no** ayuda.
+- **No** se desactivan SAC, WDAC ni Secure Boot para instalar nada.
+- Alternativa provisional ya documentada en `docs/WINDOWS-SIGNING.md`: ejecutar con el host
+  firmado `dotnet.exe` mientras se gestiona la firma real.
+
+## Limitaciones conocidas
+
+- El manifiesto usa un `Publisher` placeholder (`CN=FanForge Development`); debe **coincidir** con el
+  sujeto del certificado de firma real.
+- Los logos son placeholders neutros.
+- El *layout* autónomo es grande (self-contained); una variante framework-dependent requiere .NET 8
+  en el equipo.

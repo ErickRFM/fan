@@ -22,6 +22,11 @@ jobs:
         run: dotnet build FanForge.Win/FanForge.Win.csproj -c Release
       - name: Publish unsigned preview
         run: dotnet publish FanForge.Win/FanForge.Win.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o dist
+      - name: Generate MSIX assets
+        shell: powershell
+        run: ./scripts/New-MsixAssets.ps1
+      - name: Verify MSIX package structure
+        run: powershell -NoProfile -File scripts/verificar-msix.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: FanForge-windows-x64-untested
