@@ -489,8 +489,8 @@ internal sealed class MainForm : Form
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         _fanState = new Label { AutoSize = true, ForeColor = Foreground, Font = new Font("Segoe UI", 11, FontStyle.Bold), Text = "FanSpeed Engine: inicializando…" };
-        _fanCaps = new Label { AutoSize = true, ForeColor = Muted, MaximumSize = new Size(340, 0), Text = "Backends: pendiente" };
-        _fanNote = new Label { AutoSize = true, ForeColor = Warning, MaximumSize = new Size(340, 0), Text = "Comprobando canal PWM…" };
+        _fanCaps = new Label { AutoSize = true, ForeColor = Muted, Text = "Backends: pendiente" };
+        _fanNote = new Label { AutoSize = true, ForeColor = Warning, Text = "Comprobando canal PWM…" };
 
         _fanCpu = new NumericUpDown { Minimum = 70, Maximum = 100, Value = 80, Width = 70, Enabled = false };
         _fanGpu = new NumericUpDown { Minimum = 70, Maximum = 100, Value = 80, Width = 70, Enabled = false };
@@ -522,6 +522,18 @@ internal sealed class MainForm : Form
         panel.Controls.Add(actionRow, 0, 4);
         panel.Controls.Add(_fanNote, 0, 5);
         panel.Controls.Add(_fanAudit, 0, 6);
+
+        // Keep the wrapping labels sized to the live viewport so the tab reflows cleanly at
+        // 100/125/150/200% DPI and on a narrow window instead of truncating text.
+        void Reflow(object? _, EventArgs __)
+        {
+            int width = Math.Max(160, panel.ClientSize.Width - panel.Padding.Horizontal);
+            if (_fanCaps != null) _fanCaps.MaximumSize = new Size(width, 0);
+            if (_fanNote != null) _fanNote.MaximumSize = new Size(width, 0);
+        }
+
+        panel.SizeChanged += Reflow;
+        Reflow(null, EventArgs.Empty);
         return panel;
     }
 
@@ -545,7 +557,7 @@ internal sealed class MainForm : Form
 
     private static Control FanSpeedRow(string label, NumericUpDown percent, Button apply)
     {
-        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top };
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
         row.Controls.Add(new Label { Text = label, AutoSize = true, ForeColor = Foreground, Margin = new Padding(0, 8, 6, 0) });
         row.Controls.Add(percent);
         row.Controls.Add(apply);
@@ -567,16 +579,21 @@ internal sealed class MainForm : Form
             return;
         }
 
-        bool verified = caps.Any(c => c.PwmDirect == CapabilityLevel.Verified);
+        bool cpuVerified = caps.Any(c => c.CanControl(FanTarget.Cpu));
+        bool gpuVerified = caps.Any(c => c.CanControl(FanTarget.Gpu));
+        bool anyVerified = cpuVerified || gpuVerified;
         _fanState.Text = "FanSpeed Engine: " + _fanEngine.State;
         _fanCaps.Text = "Backends:\n" + string.Join("\n", caps.Select(c =>
-            "• " + c.Backend + ": PWM=" + c.PwmDirect + " · telemetría=" + c.TelemetryAvailable));
-        if (_fanCpu != null) _fanCpu.Enabled = verified;
-        if (_fanGpu != null) _fanGpu.Enabled = verified;
-        foreach (var button in new[] { _fanApplyCpu, _fanApplyGpu, _fanConfirm, _fanRestore })
-            if (button != null) button.Enabled = verified;
-        _fanNote.Text = verified
-            ? "Canal PWM verificado: control manual disponible 70–100% con confirmación de RPM."
+            "• " + c.Backend + ": CPU=" + c.CpuPwm + " · GPU=" + c.GpuPwm +
+            " · telemetría=" + c.TelemetryAvailable));
+        if (_fanCpu != null) _fanCpu.Enabled = cpuVerified;
+        if (_fanGpu != null) _fanGpu.Enabled = gpuVerified;
+        if (_fanApplyCpu != null) _fanApplyCpu.Enabled = cpuVerified;
+        if (_fanApplyGpu != null) _fanApplyGpu.Enabled = gpuVerified;
+        if (_fanConfirm != null) _fanConfirm.Enabled = anyVerified;
+        if (_fanRestore != null) _fanRestore.Enabled = anyVerified;
+        _fanNote.Text = anyVerified
+            ? "Canal PWM verificado: control manual por ventilador 70–100% con confirmación de RPM."
             : "Control manual DESHABILITADO: ningún backend con PWM verificado. En M3500QC el firmware " +
               "no expone PWM ni curvas; los perfiles ASUS siguen disponibles.";
         UpdateFanAudit();

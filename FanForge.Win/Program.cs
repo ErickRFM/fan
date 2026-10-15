@@ -45,6 +45,12 @@ internal static class Program
         if (args.Length == 1 && args[0] == "--fan-recovery-status")
             return FanRecoveryStatus();
 
+        if (args.Length == 1 && args[0] == "--fan-diagnostics")
+            return FanDiagnostics();
+
+        if (args.Length == 1 && args[0] == "--fan-research-report")
+            return FanResearchReport();
+
         using var mutex = new Mutex(true, @"Local\FanForge-M3500QC", out bool acquired);
         if (!acquired)
         {
@@ -441,6 +447,116 @@ internal static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine("fan-recovery-status fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>
+    /// Read-only per-fan diagnostic: model/BIOS, backend capabilities split per fan, current RPM and
+    /// the exact reason manual control is (or is not) available. Never writes PWM.
+    /// </summary>
+    private static int FanDiagnostics()
+    {
+        AttachConsole();
+        Report("FanForge --fan-diagnostics (solo lectura; no escribe PWM)");
+        try
+        {
+            Report("Modelo: " + AsusHardware.Model());
+            Report("BIOS: " + AsusHardware.BiosVersion());
+
+            using var engine = new FanSpeedEngine(FanSpeedBackends.CreateDefault());
+            var caps = engine.DetectAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Report("Estado del motor: " + engine.State);
+
+            foreach (var c in caps)
+            {
+                Report($"- {c.Backend}");
+                Report($"    PWM CPU={c.CpuPwm} GPU={c.GpuPwm} | curvas={c.FanCurves} | " +
+                       $"perfiles={c.SupportsProfiles} | telemetria={c.TelemetryAvailable}");
+                if (c.Note is not null)
+                {
+                    Report("    nota: " + c.Note);
+                }
+            }
+
+            bool cpu = caps.Any(c => c.CanControl(FanTarget.Cpu));
+            bool gpu = caps.Any(c => c.CanControl(FanTarget.Gpu));
+            bool both = caps.Any(c => c.CanControl(FanTarget.Both));
+            Report($"Control manual verificado: CPU={(cpu ? "si" : "no")} " +
+                   $"GPU={(gpu ? "si" : "no")} Ambos={(both ? "si" : "no")}");
+
+            foreach (var backend in engine.Backends)
+            {
+                try
+                {
+                    var r = backend.ReadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    Report($"- {backend.Name}: CPU={r.CpuRpm?.ToString() ?? "n/a"} RPM " +
+                           $"GPU={r.GpuRpm?.ToString() ?? "n/a"} RPM perfil={r.Profile} calidad={r.Quality}");
+                }
+                catch (Exception ex)
+                {
+                    Report($"- {backend.Name}: ERROR {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+
+            Report("Motivo: " + (cpu || gpu
+                ? "existe un canal PWM verificado para al menos un ventilador."
+                : "ningun canal PWM verificado; en el M3500QC el firmware no expone ventiladores " +
+                  "(HealthyTable_FanCounts=-1, curvas ATKACPI=-65536). Control manual bloqueado."));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("fan-diagnostics fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>
+    /// Read-only research report: the documented interface matrix plus the live detection result, so a
+    /// support request can include the concrete state of this machine without any write.
+    /// </summary>
+    private static int FanResearchReport()
+    {
+        AttachConsole();
+        Report("FanForge --fan-research-report (solo lectura; no escribe PWM)");
+        Report("Modelo: " + AsusHardware.Model() + "  BIOS: " + AsusHardware.BiosVersion());
+        Report(string.Empty);
+        Report("Vias documentadas (ver docs/DIRECT-FAN-CONTROL-RESEARCH.md):");
+        Report("  ATKACPI  \\\\.\\ATKACPI IOCTL 0x0022240C  DSTS/DEVS  (RPM+perfiles)");
+        Report("  WMI      root\\wmi:AsusAtkWmi_WMNB DSTS       (RPM, flag 0x10000)");
+        Report("  OEM      AsusWinIO64.dll HealthyTable_*      (PWM fijo MyASUS-style)");
+        Report("  PawnIO   driver firmado MSR/SMU              (sin modulo de ventilador)");
+        Report(string.Empty);
+        Report("Endpoints ATKACPI: CPU_Fan=0x00110013 GPU_Fan=0x00110014 Mid_Fan=0x00110031");
+        Report("                   DevsCPUFan=0x00110022 DevsGPUFan=0x00110023");
+        Report("                   DevsCPUFanCurve=0x00110024 DevsGPUFanCurve=0x00110025");
+        Report("                   VivoBookMode=0x00110019");
+        Report(string.Empty);
+        Report("Observado en M3500QC: HealthyTable_FanCounts=-1; curvas=-65536; PWM=no soportado.");
+        Report("G-Helper experimental: control manual por % (metodo MyASUS fan-test); codigo NO publicado.");
+        Report(string.Empty);
+
+        try
+        {
+            using var engine = new FanSpeedEngine(FanSpeedBackends.CreateDefault());
+            var caps = engine.DetectAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Report("Deteccion en vivo - estado del motor: " + engine.State);
+            foreach (var c in caps)
+            {
+                Report($"  {c.Backend}: PWM CPU={c.CpuPwm} GPU={c.GpuPwm} telemetria={c.TelemetryAvailable}");
+            }
+            bool anyVerified = caps.Any(c => c.PwmDirect == CapabilityLevel.Verified);
+            Report("Resultado: " + (anyVerified
+                ? "hay control PWM verificado."
+                : "sin control PWM verificado; se mantiene bloqueado hasta validacion fisica."));
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("fan-research-report fallo: " + ex.GetType().Name + ": " + ex.Message);
             Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
             return 2;
         }

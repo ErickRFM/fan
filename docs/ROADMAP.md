@@ -70,6 +70,17 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [ ] Medición sostenida RPM-vs-temperatura por modo comparando con ProArt Creator Hub.
 - [ ] Empaquetado firmado (Azure Artifact Signing / MSIX / Store).
 
+## v1.0 — Control directo de ventiladores por ventilador (F0–F13)
+- [x] Capacidades por ventilador (`FanChannelCapabilities`) y estados ampliados (`Unsupported → DetectedUnverified → Compatible → Ready → Applying → AcceptedUnverified → Verified → Restoring → Restored → Failed`).
+- [x] Control independiente CPU/GPU; `FanTarget.Both` solo si **cada** ventilador tiene PWM verificado; solicitudes 70–100 % (incluido *ambos 100 %*).
+- [x] Auditoría con `RequestedPercent` y `ObservedRpm` separados (un solicitado nunca equivale a RPM alcanzadas).
+- [x] Seguridad: `EvaluateSafetyAsync` restaura de forma preventiva ante 0 RPM o lectura inválida durante control manual.
+- [x] CLI de solo lectura `--fan-diagnostics` y `--fan-research-report`.
+- [x] UI FanSpeed responsiva (100/125/150/200 % DPI) con gating por ventilador.
+- [x] Investigación: `docs/DIRECT-FAN-CONTROL-RESEARCH.md`, `docs/MYASUS-FAN-DIAGNOSTICS.md`, `docs/PAWNIO-COMPATIBILITY.md` (se documenta que el código experimental de G-Helper **no está publicado**).
+- [x] Pruebas 268 (antes 252); Release 0 avisos / 0 errores.
+- [ ] Validación física de un canal PWM por ventilador (requiere persona presente): `docs/FANSPEED-PHYSICAL-TESTS.md`.
+
 ## v0.9 — Motor FanSpeed, telemetría WMI y centro de control (P11–P20)
 - [x] Motor `FanSpeedEngine` (Core): multibackend, canal serializado, estados de verificación y auditoría; nunca reporta como completado lo no confirmado.
 - [x] Contratos (`FanSpeedCapabilities`, `FanTarget`, `IFanSpeedBackend`) y backend simulado para pruebas sin hardware.

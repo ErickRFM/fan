@@ -19,6 +19,10 @@ public static class FanPolicy
 
     public static bool ValidFanCount(int count) => count >= 1 && count <= MaxFans;
 
+    /// <summary>Manual requests are limited to the safe 70%-100% window; anything else is rejected.</summary>
+    public static bool ValidManualPercent(int percent) =>
+        percent >= MinimumPercent && percent <= MaximumPercent;
+
     public static short Duty(int percent)
     {
         if (percent < MinimumPercent || percent > MaximumPercent)
