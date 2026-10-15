@@ -83,3 +83,12 @@ signtool sign /fd SHA256 /a /f mi-certificado.pfx /p <password> dist/msix/FanFor
 - Los logos son placeholders neutros.
 - El *layout* autónomo es grande (self-contained); una variante framework-dependent requiere .NET 8
   en el equipo.
+
+## Firma local cuando Artifact Signing Public Trust no está disponible
+
+En países no habilitados para Artifact Signing Public Trust, un certificado OV
+emitido por una CA pública con clave protegida puede firmar un paquete MSIX.
+El comando `scripts/firmar-distribucion-local.ps1 -CertificateThumbprint <40-hex>`
+publica, firma el EXE, incorpora su sujeto como Publisher, empaqueta, firma el
+MSIX y verifica ambos con SignTool. Requisitos en [WINDOWS-SIGNING.md](WINDOWS-SIGNING.md).
+No distribuyas el MSIX sin haber verificado su firma real en Windows.
