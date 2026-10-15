@@ -33,6 +33,18 @@ internal static class Program
         if (args.Length >= 2 && args[0] == "--analyze")
             return Analyze(args.Skip(1).ToArray());
 
+        if (args.Length == 1 && args[0] == "--fan-backends")
+            return FanBackendsReport();
+
+        if (args.Length == 1 && args[0] == "--fan-capabilities")
+            return FanCapabilitiesSummary();
+
+        if (args.Length == 1 && args[0] == "--fan-read")
+            return FanRead();
+
+        if (args.Length == 1 && args[0] == "--fan-recovery-status")
+            return FanRecoveryStatus();
+
         using var mutex = new Mutex(true, @"Local\FanForge-M3500QC", out bool acquired);
         if (!acquired)
         {
@@ -317,6 +329,121 @@ internal static class Program
             if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
         }
         return Environment.CurrentDirectory;
+    }
+
+    /// <summary>Read-only: lists every FanSpeed backend and its reported capabilities.</summary>
+    private static int FanBackendsReport()
+    {
+        AttachConsole();
+        Report("FanForge --fan-backends (solo lectura; no escribe PWM)");
+        try
+        {
+            using var engine = new FanSpeedEngine(FanSpeedBackends.CreateDefault());
+            var caps = engine.DetectAsync(CancellationToken.None).GetAwaiter().GetResult();
+            foreach (var c in caps)
+            {
+                Report($"- {c.Backend}: pwm={c.PwmDirect} curvas={c.FanCurves} " +
+                       $"perfiles={c.SupportsProfiles} telemetria={c.TelemetryAvailable}" +
+                       (c.Note is null ? string.Empty : " · " + c.Note));
+            }
+            Report("Estado del motor: " + engine.State);
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("fan-backends fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>Read-only: summarizes whether any verified PWM control path exists.</summary>
+    private static int FanCapabilitiesSummary()
+    {
+        AttachConsole();
+        Report("FanForge --fan-capabilities (solo lectura)");
+        try
+        {
+            using var engine = new FanSpeedEngine(FanSpeedBackends.CreateDefault());
+            var caps = engine.DetectAsync(CancellationToken.None).GetAwaiter().GetResult();
+            var verified = caps.FirstOrDefault(c => c.PwmDirect == CapabilityLevel.Verified);
+            bool anyTelemetry = caps.Any(c => c.TelemetryAvailable);
+            Report("PWM directo verificado: " + (verified is not null ? "sí (" + verified.Backend + ")" : "no"));
+            Report("Telemetría disponible: " + (anyTelemetry ? "sí" : "no"));
+            Report("Estado del motor: " + engine.State);
+            Report("Control manual: " + (engine.Manual ? "activo" : "inactivo") +
+                   " (requiere PWM verificado; en M3500QC el firmware no lo expone).");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("fan-capabilities fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>Read-only: prints one reading per backend, tolerating per-backend failures.</summary>
+    private static int FanRead()
+    {
+        AttachConsole();
+        Report("FanForge --fan-read (solo lectura; no escribe PWM)");
+        try
+        {
+            using var engine = new FanSpeedEngine(FanSpeedBackends.CreateDefault());
+            foreach (var backend in engine.Backends)
+            {
+                try
+                {
+                    var r = backend.ReadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                    Report($"- {backend.Name}: CPU={r.CpuRpm?.ToString() ?? "n/a"} RPM " +
+                           $"GPU={r.GpuRpm?.ToString() ?? "n/a"} RPM " +
+                           $"CPU={r.CpuCelsius?.ToString() ?? "n/a"}°C GPU={r.GpuCelsius?.ToString() ?? "n/a"}°C " +
+                           $"perfil={r.Profile} calidad={r.Quality}");
+                }
+                catch (Exception ex)
+                {
+                    Report($"- {backend.Name}: ERROR {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("fan-read fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
+    }
+
+    /// <summary>Read-only: shows the persisted recovery record and the current ASUS profile.</summary>
+    private static int FanRecoveryStatus()
+    {
+        AttachConsole();
+        Report("FanForge --fan-recovery-status (solo lectura)");
+        try
+        {
+            var store = new FileProfileStore();
+            int? original = store.Load();
+            Report("Archivo de recuperación: " + FileProfileStore.FilePath);
+            Report(original is int w
+                ? "Perfil original guardado: " + FanPolicy.ProfileName(w) + " (wire " + w + ")"
+                : "Sin perfil original pendiente de restaurar.");
+
+            int? current = FanPolicy.SupportedModel(AsusHardware.Model())
+                ? new AsusAcpiProfileChannel().ReadWireMode()
+                : null;
+            Report(current is int c
+                ? "Perfil actual: " + FanPolicy.ProfileName(c) + " (wire " + c + ")"
+                : "Perfil actual: desconocido o no soportado.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("fan-recovery-status fallo: " + ex.GetType().Name + ": " + ex.Message);
+            Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
+            return 2;
+        }
     }
 
     private static int RestoreNow()

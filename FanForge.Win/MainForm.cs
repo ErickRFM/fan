@@ -45,6 +45,11 @@ internal sealed class MainForm : Form
     private readonly System.Windows.Forms.Timer _timer;
     private bool _polling, _closing, _initializing, _manualConfirmed;
     private bool _profileBusy;
+    private FanSpeedEngine? _fanEngine;
+    private Label? _fanState, _fanCaps, _fanNote;
+    private NumericUpDown? _fanCpu, _fanGpu;
+    private Button? _fanApplyCpu, _fanApplyGpu, _fanConfirm, _fanRestore;
+    private ListBox? _fanAudit;
 
     public MainForm()
     {
@@ -131,7 +136,14 @@ internal sealed class MainForm : Form
             BorderStyle = BorderStyle.FixedSingle,
             Font = new Font("Consolas", 9)
         };
-        right.Controls.Add(_diagnostic, 0, 2);
+        var tabs = new TabControl { Dock = DockStyle.Fill };
+        var logTab = new TabPage("Registro") { BackColor = PanelColor };
+        logTab.Controls.Add(_diagnostic);
+        var fanTab = new TabPage("FanSpeed") { BackColor = PanelColor, AutoScroll = true };
+        fanTab.Controls.Add(BuildFanSpeedCenter());
+        tabs.TabPages.Add(logTab);
+        tabs.TabPages.Add(fanTab);
+        right.Controls.Add(tabs, 0, 2);
         center.Controls.Add(right, 1, 0);
 
         var footer = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 110, Padding = new Padding(22, 12, 10, 8) };
@@ -323,6 +335,11 @@ internal sealed class MainForm : Form
                 Array.Empty<IFanControlBackend>());
             _acpiControl = new AsusAcpiControlBackend();
 
+            _fanEngine = new FanSpeedEngine(FanSpeedBackends.CreateDefault());
+            await RefreshFanSpeedAsync();
+            Log("FanSpeed Engine: " + _fanEngine.State + " · " +
+                string.Join(", ", _fanEngine.Capabilities.Select(c => c.Backend + "=" + c.PwmDirect)));
+
             if (_telemetry != null)
             {
                 _caps = await _telemetry.GetBestCapabilitiesAsync(CancellationToken.None);
@@ -452,6 +469,154 @@ internal sealed class MainForm : Form
             foreach (var block in _fanPanel.Controls.OfType<Panel>())
                 block.Width = Math.Max(380, _fanPanel.ClientSize.Width - 28);
         };
+    }
+
+    /// <summary>
+    /// Builds the FanSpeed Control Center. The manual controls stay disabled until a backend proves a
+    /// physically verified PWM channel; on the M3500QC the firmware exposes none, so they remain greyed.
+    /// </summary>
+    private Control BuildFanSpeedCenter()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 7,
+            Padding = new Padding(10),
+            BackColor = PanelColor
+        };
+        for (int i = 0; i < 6; i++) panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+
+        _fanState = new Label { AutoSize = true, ForeColor = Foreground, Font = new Font("Segoe UI", 11, FontStyle.Bold), Text = "FanSpeed Engine: inicializando…" };
+        _fanCaps = new Label { AutoSize = true, ForeColor = Muted, MaximumSize = new Size(340, 0), Text = "Backends: pendiente" };
+        _fanNote = new Label { AutoSize = true, ForeColor = Warning, MaximumSize = new Size(340, 0), Text = "Comprobando canal PWM…" };
+
+        _fanCpu = new NumericUpDown { Minimum = 70, Maximum = 100, Value = 80, Width = 70, Enabled = false };
+        _fanGpu = new NumericUpDown { Minimum = 70, Maximum = 100, Value = 80, Width = 70, Enabled = false };
+        _fanApplyCpu = FanSpeedButton("Aplicar CPU", async (_, _) => await ApplyFanSpeedAsync(FanTarget.Cpu));
+        _fanApplyGpu = FanSpeedButton("Aplicar GPU", async (_, _) => await ApplyFanSpeedAsync(FanTarget.Gpu));
+        _fanConfirm = FanSpeedButton("Confirmar RPM", async (_, _) => await ConfirmFanSpeedAsync());
+        _fanRestore = FanSpeedButton("Volver a automático", async (_, _) => await RestoreFanAutoAsync());
+
+        var cpuRow = FanSpeedRow("CPU %", _fanCpu, _fanApplyCpu);
+        var gpuRow = FanSpeedRow("GPU %", _fanGpu, _fanApplyGpu);
+        var actionRow = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
+        actionRow.Controls.Add(_fanConfirm);
+        actionRow.Controls.Add(_fanRestore);
+
+        _fanAudit = new ListBox
+        {
+            Dock = DockStyle.Fill,
+            BackColor = PanelColor,
+            ForeColor = Foreground,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Consolas", 9),
+            IntegralHeight = false
+        };
+
+        panel.Controls.Add(_fanState, 0, 0);
+        panel.Controls.Add(_fanCaps, 0, 1);
+        panel.Controls.Add(cpuRow, 0, 2);
+        panel.Controls.Add(gpuRow, 0, 3);
+        panel.Controls.Add(actionRow, 0, 4);
+        panel.Controls.Add(_fanNote, 0, 5);
+        panel.Controls.Add(_fanAudit, 0, 6);
+        return panel;
+    }
+
+    private static Button FanSpeedButton(string title, EventHandler click)
+    {
+        var button = new Button
+        {
+            Text = title,
+            Width = 140,
+            Height = 34,
+            BackColor = ButtonNeutral,
+            ForeColor = Foreground,
+            FlatStyle = FlatStyle.Flat,
+            Enabled = false,
+            Margin = new Padding(0, 0, 8, 6)
+        };
+        button.FlatAppearance.BorderSize = 0;
+        button.Click += click;
+        return button;
+    }
+
+    private static Control FanSpeedRow(string label, NumericUpDown percent, Button apply)
+    {
+        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Top };
+        row.Controls.Add(new Label { Text = label, AutoSize = true, ForeColor = Foreground, Margin = new Padding(0, 8, 6, 0) });
+        row.Controls.Add(percent);
+        row.Controls.Add(apply);
+        return row;
+    }
+
+    /// <summary>Re-probes backends and updates the control center; keeps writes gated on verification.</summary>
+    private async Task RefreshFanSpeedAsync()
+    {
+        if (_fanEngine is null || _fanState is null || _fanCaps is null || _fanNote is null) return;
+        IReadOnlyList<FanSpeedCapabilities> caps;
+        try
+        {
+            caps = await _fanEngine.DetectAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Log("FanSpeed detección falló: " + ex.Message);
+            return;
+        }
+
+        bool verified = caps.Any(c => c.PwmDirect == CapabilityLevel.Verified);
+        _fanState.Text = "FanSpeed Engine: " + _fanEngine.State;
+        _fanCaps.Text = "Backends:\n" + string.Join("\n", caps.Select(c =>
+            "• " + c.Backend + ": PWM=" + c.PwmDirect + " · telemetría=" + c.TelemetryAvailable));
+        if (_fanCpu != null) _fanCpu.Enabled = verified;
+        if (_fanGpu != null) _fanGpu.Enabled = verified;
+        foreach (var button in new[] { _fanApplyCpu, _fanApplyGpu, _fanConfirm, _fanRestore })
+            if (button != null) button.Enabled = verified;
+        _fanNote.Text = verified
+            ? "Canal PWM verificado: control manual disponible 70–100% con confirmación de RPM."
+            : "Control manual DESHABILITADO: ningún backend con PWM verificado. En M3500QC el firmware " +
+              "no expone PWM ni curvas; los perfiles ASUS siguen disponibles.";
+        UpdateFanAudit();
+    }
+
+    private async Task ApplyFanSpeedAsync(FanTarget target)
+    {
+        if (_fanEngine is null) return;
+        int percent = target == FanTarget.Gpu ? (int)(_fanGpu?.Value ?? 80) : (int)(_fanCpu?.Value ?? 80);
+        var result = await _fanEngine.SetSpeedAsync(target, percent, CancellationToken.None);
+        Log("FanSpeed " + target + " " + percent + "% -> " + result.State + " · " + result.Message);
+        if (!result.Confirmed) Log("FanSpeed: no confirmado; NO se presenta como completado.");
+        await RefreshFanSpeedAsync();
+    }
+
+    private async Task ConfirmFanSpeedAsync()
+    {
+        if (_fanEngine is null) return;
+        var result = await _fanEngine.ConfirmAsync(CancellationToken.None);
+        Log("FanSpeed confirmar -> " + result.State + " · " + result.Message);
+        await RefreshFanSpeedAsync();
+    }
+
+    private async Task RestoreFanAutoAsync()
+    {
+        if (_fanEngine is null) return;
+        var result = await _fanEngine.RestoreAutomaticAsync(CancellationToken.None);
+        Log("FanSpeed restaurar -> " + result.State + " · " + result.Message);
+        await RefreshFanSpeedAsync();
+    }
+
+    private void UpdateFanAudit()
+    {
+        if (_fanAudit is null || _fanEngine is null) return;
+        _fanAudit.BeginUpdate();
+        _fanAudit.Items.Clear();
+        foreach (var entry in _fanEngine.Audit.TakeLast(50))
+            _fanAudit.Items.Add(entry.Timestamp.ToString("HH:mm:ss") + " " + entry.State + " · " + entry.Message);
+        if (_fanAudit.Items.Count > 0) _fanAudit.TopIndex = _fanAudit.Items.Count - 1;
+        _fanAudit.EndUpdate();
     }
 
     private void All(int value)
@@ -740,6 +905,8 @@ internal sealed class MainForm : Form
     {
         _timer.Stop();
         SystemEvents.PowerModeChanged -= OnPower;
+        _fanEngine?.Dispose();
+        _fanEngine = null;
         try { _session?.Restore(); } catch (Exception ex) { Log("Fallo al restaurar al cerrar: " + ex.Message); }
         RestoreOriginalProfileBlocking();
         _closing = true;

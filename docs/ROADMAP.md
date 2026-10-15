@@ -70,6 +70,18 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [ ] Medición sostenida RPM-vs-temperatura por modo comparando con ProArt Creator Hub.
 - [ ] Empaquetado firmado (Azure Artifact Signing / MSIX / Store).
 
+## v0.9 — Motor FanSpeed, telemetría WMI y centro de control (P11–P20)
+- [x] Motor `FanSpeedEngine` (Core): multibackend, canal serializado, estados de verificación y auditoría; nunca reporta como completado lo no confirmado.
+- [x] Contratos (`FanSpeedCapabilities`, `FanTarget`, `IFanSpeedBackend`) y backend simulado para pruebas sin hardware.
+- [x] Códec WMI `AsusWmiCodec` (bit de validez `0x10000`, rechazo de centinelas) con pruebas de los casos verificados.
+- [x] Backends Win: ATKACPI (RPM/perfiles), WMI (defensivo, solo lectura), HealthyTable (PWM gated, nunca auto-verificado) y PawnIO (stub deshabilitado).
+- [x] Diagnóstico CLI de solo lectura: `--fan-backends`, `--fan-capabilities`, `--fan-read`, `--fan-recovery-status`.
+- [x] Centro de control FanSpeed en la GUI (controles de escritura deshabilitados salvo PWM `Verified`).
+- [x] Investigación y matriz de compatibilidad (`docs/FANSPEED-RESEARCH.md`) y protocolo físico (`docs/FANSPEED-PHYSICAL-TESTS.md`).
+- [x] Pruebas 252 (antes 223); Release 0 avisos / 0 errores.
+- [ ] Validación física de un canal PWM (si algún modelo/BIOS lo expone): ver `docs/FANSPEED-PHYSICAL-TESTS.md`.
+- [ ] Empaquetado firmado (Azure Artifact Signing / MSIX / Store).
+
 ## v0.8 — Analizador térmico, MSIX, recuperación e investigación PWM (P6–P10)
 - [x] Analizador térmico `--analyze` (solo lectura de archivos): parseo tolerante, estadísticas, correlación (no causal), informe HTML/SVG y CSV; import de ProArt.
 - [x] Base de empaquetado MSIX: manifiesto, logos por script, verificación estructural en CI y empaquetado reproducible (`docs/MSIX.md`). Firma = paso manual autorizado.
