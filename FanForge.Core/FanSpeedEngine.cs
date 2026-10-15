@@ -6,10 +6,10 @@ namespace FanForge.Core;
 /// </summary>
 /// <remarks>
 /// The engine separates detection, verification, request, response and measured RPM. A write is only
-/// attempted through a backend whose direct-PWM capability is <see cref="CapabilityLevel.Verified"/>,
-/// and a command is only ever presented as completed once the RPM response has been confirmed. On
-/// hardware where no verified path exists (as on the M3500QC today) every request resolves to
-/// <see cref="FanSpeedState.Unsupported"/> instead of a false success.
+/// attempted through a backend whose direct-PWM capability is <see cref="CapabilityLevel.Verified"/>
+/// for the requested fan(s), and a command is only ever presented as completed once the RPM response
+/// has been confirmed. On hardware where no verified path exists (as on the M3500QC today) every
+/// request resolves to <see cref="FanSpeedState.Unsupported"/> instead of a false success.
 /// </remarks>
 public sealed class FanSpeedEngine : IDisposable
 {
@@ -19,11 +19,11 @@ public sealed class FanSpeedEngine : IDisposable
     private readonly List<FanSpeedAuditEntry> _audit = new();
 
     private IReadOnlyList<FanSpeedCapabilities>? _capabilities;
-    private FanTarget? _manualTarget;
-    private int _manualPercent;
+    private int? _manualCpuPercent;
+    private int? _manualGpuPercent;
     private int? _baselineCpuRpm;
     private int? _baselineGpuRpm;
-    private FanSpeedState _state = FanSpeedState.AvailableUnverified;
+    private FanSpeedState _state = FanSpeedState.DetectedUnverified;
 
     public FanSpeedEngine(IEnumerable<IFanSpeedBackend> backends, TimeProvider? time = null)
     {
@@ -33,9 +33,23 @@ public sealed class FanSpeedEngine : IDisposable
     }
 
     public FanSpeedState State => _state;
-    public bool Manual => _manualTarget is not null;
-    public FanTarget? ManualTarget => _manualTarget;
-    public int ManualPercent => _manualPercent;
+    public bool Manual => _manualCpuPercent is not null || _manualGpuPercent is not null;
+
+    /// <summary>Targets that are currently under manual control (null when automatic).</summary>
+    public FanTarget? ManualTarget => (_manualCpuPercent, _manualGpuPercent) switch
+    {
+        (not null, not null) => FanTarget.Both,
+        (not null, null) => FanTarget.Cpu,
+        (null, not null) => FanTarget.Gpu,
+        _ => null
+    };
+
+    /// <summary>Last requested percent (CPU takes precedence when both fans differ).</summary>
+    public int ManualPercent => _manualCpuPercent ?? _manualGpuPercent ?? 0;
+
+    public int? ManualCpuPercent => _manualCpuPercent;
+    public int? ManualGpuPercent => _manualGpuPercent;
+
     public IReadOnlyList<FanSpeedAuditEntry> Audit => _audit;
     public IReadOnlyList<IFanSpeedBackend> Backends => _backends;
     public IReadOnlyList<FanSpeedCapabilities> Capabilities =>
@@ -66,9 +80,13 @@ public sealed class FanSpeedEngine : IDisposable
         _capabilities = list;
         if (!Manual)
         {
-            _state = list.Any(c => c.PwmDirect == CapabilityLevel.Verified)
-                ? FanSpeedState.Ready
-                : FanSpeedState.AvailableUnverified;
+            bool anyVerified = list.Any(c => c.PwmDirect == CapabilityLevel.Verified);
+            bool anyCandidate = list.Any(c => c.PwmDirect is CapabilityLevel.Detected or CapabilityLevel.Unverified);
+            bool anyTelemetry = list.Any(c => c.TelemetryAvailable);
+            _state = anyVerified ? FanSpeedState.Ready
+                : anyCandidate ? FanSpeedState.Compatible
+                : anyTelemetry ? FanSpeedState.DetectedUnverified
+                : FanSpeedState.Unsupported;
         }
 
         return list;
@@ -106,49 +124,56 @@ public sealed class FanSpeedEngine : IDisposable
     }
 
     /// <summary>
-    /// Requests a manual speed. Only a backend whose PWM path is Verified can be used; the command is
-    /// serialized and the result is never reported as completed until confirmed.
+    /// Requests a manual speed for one fan (or both). Only a backend whose PWM path is Verified for the
+    /// requested fan(s) can be used; the command is serialized and the result is never reported as
+    /// completed until confirmed.
     /// </summary>
     public async Task<FanSpeedCommandResult> SetSpeedAsync(
         FanTarget target,
         int percent,
         CancellationToken cancellationToken = default)
     {
-        if (percent < FanPolicy.MinimumPercent || percent > FanPolicy.MaximumPercent)
+        if (!FanPolicy.ValidManualPercent(percent))
         {
             return new FanSpeedCommandResult(
                 FanSpeedState.Failed,
                 $"El control manual solo admite {FanPolicy.MinimumPercent}%-{FanPolicy.MaximumPercent}%.",
-                percent);
+                percent,
+                null,
+                target);
         }
 
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var backend = await FindApplyBackendAsync(cancellationToken).ConfigureAwait(false);
+            var backend = await FindApplyBackendAsync(target, cancellationToken).ConfigureAwait(false);
             if (backend is null)
             {
                 _state = FanSpeedState.Unsupported;
-                Record(backend: "none", _state, "Ningún backend verificado para control PWM.");
+                Record("none", _state, $"Sin canal PWM verificado para {target}.", percent);
                 return new FanSpeedCommandResult(
                     FanSpeedState.Unsupported,
-                    "Control PWM no soportado o no verificado en este equipo.",
-                    percent);
+                    $"Control PWM no soportado o no verificado para {target} en este equipo.",
+                    percent,
+                    null,
+                    target);
             }
 
             var baseline = await SafeReadAsync(backend, cancellationToken).ConfigureAwait(false);
             if (baseline.Quality == ReadingQuality.Invalid)
             {
                 _state = FanSpeedState.Failed;
-                Record(backend.Name, _state, "Lecturas incoherentes; se cancela la escritura.");
+                Record(backend.Name, _state, "Lecturas incoherentes; se cancela la escritura.", percent);
                 return new FanSpeedCommandResult(
                     FanSpeedState.Failed,
                     "Lecturas incoherentes: se cancela la escritura por seguridad.",
-                    percent);
+                    percent,
+                    null,
+                    target);
             }
 
             _state = FanSpeedState.Applying;
-            Record(backend.Name, _state, $"Aplicando {percent}% a {target}.");
+            Record(backend.Name, _state, $"Aplicando {percent}% solicitado a {target}.", percent);
 
             FanSpeedCommandResult result;
             try
@@ -162,8 +187,8 @@ public sealed class FanSpeedEngine : IDisposable
             catch (Exception ex)
             {
                 _state = FanSpeedState.Failed;
-                Record(backend.Name, _state, ex.Message);
-                return new FanSpeedCommandResult(FanSpeedState.Failed, ex.Message, percent);
+                Record(backend.Name, _state, ex.Message, percent);
+                return new FanSpeedCommandResult(FanSpeedState.Failed, ex.Message, percent, null, target);
             }
 
             if (!result.Accepted)
@@ -171,18 +196,28 @@ public sealed class FanSpeedEngine : IDisposable
                 _state = result.State == FanSpeedState.Unsupported
                     ? FanSpeedState.Unsupported
                     : FanSpeedState.Failed;
-                Record(backend.Name, _state, result.Message);
-                return new FanSpeedCommandResult(_state, result.Message, percent, result.ObservedRpm);
+                Record(backend.Name, _state, result.Message, percent, result.ObservedRpm);
+                return new FanSpeedCommandResult(_state, result.Message, percent, result.ObservedRpm, target);
             }
 
-            _manualTarget = target;
-            _manualPercent = percent;
+            if (target is FanTarget.Cpu or FanTarget.Both)
+            {
+                _manualCpuPercent = percent;
+            }
+
+            if (target is FanTarget.Gpu or FanTarget.Both)
+            {
+                _manualGpuPercent = percent;
+            }
+
             _baselineCpuRpm = baseline.CpuRpm;
             _baselineGpuRpm = baseline.GpuRpm;
-            _state = result.Confirmed ? FanSpeedState.Verified : FanSpeedState.AppliedUnverified;
+            _state = result.Confirmed ? FanSpeedState.Verified : FanSpeedState.AcceptedUnverified;
             Record(backend.Name, _state, result.Confirmed
                 ? "Cambio confirmado por el backend."
-                : $"Aceptado por {backend.Name}; pendiente de confirmación física.");
+                : $"Aceptado por {backend.Name}; pendiente de confirmación física.",
+                percent,
+                result.ObservedRpm);
 
             return new FanSpeedCommandResult(
                 _state,
@@ -190,7 +225,8 @@ public sealed class FanSpeedEngine : IDisposable
                     ? "Cambio confirmado."
                     : "Solicitud aceptada por el controlador; RPM aún sin confirmar.",
                 percent,
-                result.ObservedRpm);
+                result.ObservedRpm,
+                target);
         }
         finally
         {
@@ -204,12 +240,13 @@ public sealed class FanSpeedEngine : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_manualTarget is null)
+            var target = ManualTarget;
+            if (target is null)
             {
                 return new FanSpeedCommandResult(FanSpeedState.Ready, "No hay control manual activo.");
             }
 
-            var backend = await FindApplyBackendAsync(cancellationToken).ConfigureAwait(false)
+            var backend = await FindApplyBackendAsync(target.Value, cancellationToken).ConfigureAwait(false)
                 ?? _backends.FirstOrDefault();
             if (backend is null)
             {
@@ -217,17 +254,21 @@ public sealed class FanSpeedEngine : IDisposable
             }
 
             var now = await SafeReadAsync(backend, cancellationToken).ConfigureAwait(false);
-            bool confirmed = ConfirmedFor(_manualTarget.Value, now);
-            _state = confirmed ? FanSpeedState.Verified : FanSpeedState.AppliedUnverified;
+            bool confirmed = ConfirmedFor(target.Value, now);
+            _state = confirmed ? FanSpeedState.Verified : FanSpeedState.AcceptedUnverified;
+            int? observed = confirmed ? ObservedFor(target.Value, now) : null;
             Record(backend.Name, _state, confirmed
                 ? "Respuesta de RPM confirmada."
-                : "Sin respuesta clara de RPM; permanece sin confirmar.");
+                : "Sin respuesta clara de RPM; permanece sin confirmar.",
+                ManualPercent,
+                observed);
 
             return new FanSpeedCommandResult(
                 _state,
                 confirmed ? "RPM confirmadas." : "Aceptado, pero las RPM no confirman el cambio.",
-                _manualPercent,
-                confirmed ? ObservedFor(_manualTarget.Value, now) : null);
+                ManualPercent,
+                observed,
+                target);
         }
         finally
         {
@@ -235,7 +276,7 @@ public sealed class FanSpeedEngine : IDisposable
         }
     }
 
-    /// <summary>Restores automatic (BIOS/OEM) control across every backend and clears manual state.</summary>
+    /// <summary>Restores automatic (BIOS/OEM) control across backends and clears manual state.</summary>
     public async Task<FanSpeedCommandResult> RestoreAutomaticAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -258,22 +299,17 @@ public sealed class FanSpeedEngine : IDisposable
                 }
                 catch
                 {
-                    // A backend that cannot restore must not block the others.
+                    // A backend that cannot restore must not stop the others.
                 }
             }
 
-            _manualTarget = null;
-            _manualPercent = 0;
-            _baselineCpuRpm = null;
-            _baselineGpuRpm = null;
+            ClearManual();
             _state = any ? FanSpeedState.Restored : FanSpeedState.Unsupported;
             Record("engine", _state, any ? "Control automático restaurado." : "Sin canal de restauración.");
 
             return new FanSpeedCommandResult(
                 _state,
-                any ? "Control automático restaurado." : "Ningún backend pudo restaurar el control automático.",
-                null,
-                null);
+                any ? "Control automático restaurado." : "Ningún backend pudo restaurar el control automático.");
         }
         finally
         {
@@ -293,7 +329,7 @@ public sealed class FanSpeedEngine : IDisposable
         }
 
         var reading = await ReadAsync(cancellationToken).ConfigureAwait(false);
-        if (reading.Quality == ReadingQuality.Invalid)
+        if (reading.Quality == ReadingQuality.Invalid || UnusableForManual(reading))
         {
             Record(reading.Source, FanSpeedState.Restoring, "Lectura inválida: restauración preventiva.");
             return await RestoreAutomaticAsync(cancellationToken).ConfigureAwait(false);
@@ -302,13 +338,32 @@ public sealed class FanSpeedEngine : IDisposable
         return null;
     }
 
-    private async Task<IFanSpeedBackend?> FindApplyBackendAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// True when a fan under manual control reports no plausible RPM while a request is active. A fan
+    /// that was told to spin must report motion; a zero/stale tachometer is treated as a hazard.
+    /// </summary>
+    private bool UnusableForManual(FanSpeedReading reading)
+    {
+        if (_manualCpuPercent is not null && (reading.CpuRpm ?? 0) <= 0)
+        {
+            return true;
+        }
+
+        if (_manualGpuPercent is not null && (reading.GpuRpm ?? 0) <= 0)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<IFanSpeedBackend?> FindApplyBackendAsync(FanTarget target, CancellationToken cancellationToken)
     {
         var caps = _capabilities ?? await DetectAsync(cancellationToken).ConfigureAwait(false);
         foreach (var backend in _backends)
         {
             var capability = caps.FirstOrDefault(c => c.Backend == backend.Name);
-            if (capability?.PwmDirect == CapabilityLevel.Verified)
+            if (capability?.CanControl(target) == true)
             {
                 return backend;
             }
@@ -354,8 +409,21 @@ public sealed class FanSpeedEngine : IDisposable
         _ => reading.CpuRpm ?? reading.GpuRpm
     };
 
-    private void Record(string backend, FanSpeedState state, string message) =>
-        _audit.Add(new FanSpeedAuditEntry(Now, state, backend, message));
+    private void ClearManual()
+    {
+        _manualCpuPercent = null;
+        _manualGpuPercent = null;
+        _baselineCpuRpm = null;
+        _baselineGpuRpm = null;
+    }
+
+    private void Record(
+        string backend,
+        FanSpeedState state,
+        string message,
+        int? requestedPercent = null,
+        int? observedRpm = null) =>
+        _audit.Add(new FanSpeedAuditEntry(Now, state, backend, message, requestedPercent, observedRpm));
 
     /// <summary>Releases the gate and disposes any backends this engine owns.</summary>
     public void Dispose()

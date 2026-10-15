@@ -1,4 +1,4 @@
-using System.Management;
+﻿using System.Management;
 using FanForge.Core;
 
 namespace FanForge;
@@ -141,7 +141,7 @@ internal sealed class WmiFanSpeedBackend : IFanSpeedBackend
                 CapabilityLevel.Unsupported,
                 SupportsProfiles: false,
                 TelemetryAvailable: present,
-                Note: "Solo telemetría si la clase WMI responde; sin verificar en hardware.");
+                Note: "Solo telemetrÃ­a si la clase WMI responde; sin verificar en hardware.");
         }, cancellationToken);
 
     public Task<FanSpeedReading> ReadAsync(CancellationToken cancellationToken) =>
@@ -165,11 +165,11 @@ internal sealed class WmiFanSpeedBackend : IFanSpeedBackend
         CancellationToken cancellationToken) =>
         Task.FromResult(new FanSpeedCommandResult(
             FanSpeedState.Unsupported,
-            "WMI solo expone telemetría; no se escribe.",
+            "WMI solo expone telemetrÃ­a; no se escribe.",
             percent));
 
     public Task<FanSpeedCommandResult> RestoreAutomaticAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(new FanSpeedCommandResult(FanSpeedState.Unsupported, "WMI no ofrece restauración."));
+        Task.FromResult(new FanSpeedCommandResult(FanSpeedState.Unsupported, "WMI no ofrece restauraciÃ³n."));
 
     private static int? Query(uint deviceId)
     {
@@ -256,7 +256,7 @@ internal sealed class HealthyTableFanSpeedBackend : IFanSpeedBackend, IDisposabl
                     CapabilityLevel.Unsupported,
                     SupportsProfiles: false,
                     TelemetryAvailable: false,
-                    Note: "HealthyTable no disponible (FanCounts inválido o DLL ausente).");
+                    Note: "HealthyTable no disponible (FanCounts invÃ¡lido o DLL ausente).");
             }
 
             return new FanSpeedCapabilities(
@@ -328,7 +328,7 @@ internal sealed class HealthyTableFanSpeedBackend : IFanSpeedBackend, IDisposabl
                 }
 
                 hardware.Apply(values);
-                return new FanSpeedCommandResult(FanSpeedState.AppliedUnverified, "PWM solicitado al OEM.", percent);
+                return new FanSpeedCommandResult(FanSpeedState.AcceptedUnverified, "PWM solicitado al OEM.", percent);
             }
             catch (Exception ex)
             {
@@ -415,7 +415,7 @@ internal sealed class PawnIoFanSpeedBackend : IFanSpeedBackend
             CapabilityLevel.Unsupported,
             SupportsProfiles: false,
             TelemetryAvailable: false,
-            Note: "Sin módulo de ventilador validado; PawnIO no controla PWM. Deshabilitado."));
+            Note: "Sin mÃ³dulo de ventilador validado; PawnIO no controla PWM. Deshabilitado."));
 
     public Task<FanSpeedReading> ReadAsync(CancellationToken cancellationToken) =>
         Task.FromResult(FanSpeedReading.Invalid(Name, DateTimeOffset.UtcNow));
@@ -431,3 +431,4 @@ internal sealed class PawnIoFanSpeedBackend : IFanSpeedBackend
     public Task<FanSpeedCommandResult> RestoreAutomaticAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new FanSpeedCommandResult(FanSpeedState.Unsupported, "PawnIO deshabilitado."));
 }
+

@@ -21,17 +21,41 @@ public enum CapabilityLevel
     Verified
 }
 
-/// <summary>Full lifecycle of a manual fan-speed command, from availability to confirmation.</summary>
+/// <summary>
+/// Full lifecycle of a manual fan-speed command, from availability to confirmation. The numeric order
+/// matters: <see cref="CapabilityLevel"/> combinations keep the lowest value, so an unusable fan is
+/// never misread as controllable.
+/// </summary>
 public enum FanSpeedState
 {
+    /// <summary>No backend exposes any fan channel at all.</summary>
     Unsupported,
-    AvailableUnverified,
+
+    /// <summary>An endpoint responded (e.g. telemetry) but exposes no control path.</summary>
+    DetectedUnverified,
+
+    /// <summary>A control path is exposed but not yet physically verified (never writable).</summary>
+    Compatible,
+
+    /// <summary>A verified control path exists and is ready to accept a request.</summary>
     Ready,
+
+    /// <summary>A request is being applied.</summary>
     Applying,
-    AppliedUnverified,
+
+    /// <summary>The controller acknowledged the request but the RPM response is unconfirmed.</summary>
+    AcceptedUnverified,
+
+    /// <summary>The physical response was confirmed by measured RPM.</summary>
     Verified,
+
+    /// <summary>Automatic (BIOS/OEM) control is being restored.</summary>
     Restoring,
+
+    /// <summary>Automatic control was restored.</summary>
     Restored,
+
+    /// <summary>The operation failed; nothing is assumed to have been applied.</summary>
     Failed
 }
 
@@ -43,8 +67,37 @@ public enum ReadingQuality
 }
 
 /// <summary>
+/// Per-fan control capability. A model may expose CPU and GPU channels with different capabilities, so
+/// they are tracked independently instead of being collapsed into one flag.
+/// </summary>
+public sealed record FanChannelCapabilities(CapabilityLevel Cpu, CapabilityLevel Gpu)
+{
+    public static FanChannelCapabilities None { get; } = new(CapabilityLevel.Unsupported, CapabilityLevel.Unsupported);
+
+    public static FanChannelCapabilities From(CapabilityLevel both) => new(both, both);
+
+    /// <summary>Capability for a single fan; <see cref="FanTarget.Both"/> requires both to be usable.</summary>
+    public CapabilityLevel For(FanTarget target) => target switch
+    {
+        FanTarget.Cpu => Cpu,
+        FanTarget.Gpu => Gpu,
+        _ => Combine(Cpu, Gpu)
+    };
+
+    /// <summary>Both fans are controllable only when each one individually is.</summary>
+    public static CapabilityLevel Combine(CapabilityLevel a, CapabilityLevel b) =>
+        (a, b) switch
+        {
+            (CapabilityLevel.Verified, CapabilityLevel.Verified) => CapabilityLevel.Verified,
+            (CapabilityLevel.Unsupported, _) or (_, CapabilityLevel.Unsupported) => CapabilityLevel.Unsupported,
+            _ => (CapabilityLevel)Math.Min((int)a, (int)b)
+        };
+}
+
+/// <summary>
 /// What a backend reports it can do. Detected is "the endpoint responded", Verified is "the operation
 /// was physically confirmed"; the engine never treats Detected as sufficient to write.
+/// <see cref="PerFan"/> carries the per-fan breakdown when a model exposes fans unevenly.
 /// </summary>
 public sealed record FanSpeedCapabilities(
     string Backend,
@@ -52,8 +105,21 @@ public sealed record FanSpeedCapabilities(
     CapabilityLevel FanCurves,
     bool SupportsProfiles,
     bool TelemetryAvailable,
-    string? Note = null)
+    string? Note = null,
+    FanChannelCapabilities? PerFan = null)
 {
+    /// <summary>CPU-channel PWM capability (falls back to the aggregate value).</summary>
+    public CapabilityLevel CpuPwm => PerFan?.Cpu ?? PwmDirect;
+
+    /// <summary>GPU-channel PWM capability (falls back to the aggregate value).</summary>
+    public CapabilityLevel GpuPwm => PerFan?.Gpu ?? PwmDirect;
+
+    /// <summary>PWM capability for a specific target.</summary>
+    public CapabilityLevel PwmFor(FanTarget target) => PerFan?.For(target) ?? PwmDirect;
+
+    /// <summary>True only when the requested fan(s) have a physically verified write path.</summary>
+    public bool CanControl(FanTarget target) => PwmFor(target) == CapabilityLevel.Verified;
+
     public static FanSpeedCapabilities None(string backend, string? note = null) =>
         new(backend, CapabilityLevel.Unsupported, CapabilityLevel.Unsupported, false, false, note);
 }
@@ -80,24 +146,29 @@ public sealed record FanSpeedReading(
 /// <summary>
 /// Result of a command. <see cref="Accepted"/> means the controller acknowledged the request;
 /// <see cref="Confirmed"/> means the change was physically observed. Only a Confirmed result may be
-/// presented as completed.
+/// presented as completed. <see cref="RequestedPercent"/> is what was asked for; <see cref="ObservedRpm"/>
+/// is what the tachometer actually reported — they are deliberately kept separate.
 /// </summary>
 public sealed record FanSpeedCommandResult(
     FanSpeedState State,
     string Message,
     int? RequestedPercent = null,
-    int? ObservedRpm = null)
+    int? ObservedRpm = null,
+    FanTarget? Target = null)
 {
-    public bool Accepted => State is FanSpeedState.AppliedUnverified or FanSpeedState.Verified;
+    public bool Accepted => State is FanSpeedState.AcceptedUnverified or FanSpeedState.Verified;
     public bool Confirmed => State == FanSpeedState.Verified;
 }
 
-/// <summary>One auditable transition of the engine.</summary>
+/// <summary>One auditable transition of the engine. Requested percent and observed RPM are recorded
+/// separately so a request is never mistaken for a demonstrated physical change.</summary>
 public sealed record FanSpeedAuditEntry(
     DateTimeOffset Timestamp,
     FanSpeedState State,
     string Backend,
-    string Message);
+    string Message,
+    int? RequestedPercent = null,
+    int? ObservedRpm = null);
 
 /// <summary>
 /// Contract every FanSpeed backend implements. Implementations must never report success for an

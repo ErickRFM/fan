@@ -28,7 +28,9 @@ public sealed class SimulatedFanSpeedBackend : IFanSpeedBackend
             CapabilityLevel.Unsupported,
             SupportsProfiles: false,
             TelemetryAvailable: true,
-            Note: "Backend de demostración: no accede al hardware."));
+            Note: "Backend de demostración: no accede al hardware.",
+            PerFan: FanChannelCapabilities.From(
+                _verifiedPwm ? CapabilityLevel.Verified : CapabilityLevel.Unsupported)));
 
     public Task<FanSpeedReading> ReadAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new FanSpeedReading(
@@ -66,7 +68,7 @@ public sealed class SimulatedFanSpeedBackend : IFanSpeedBackend
         }
 
         return Task.FromResult(new FanSpeedCommandResult(
-            _autoConfirm ? FanSpeedState.Verified : FanSpeedState.AppliedUnverified,
+            _autoConfirm ? FanSpeedState.Verified : FanSpeedState.AcceptedUnverified,
             _autoConfirm ? "Cambio simulado confirmado." : "Cambio simulado aceptado.",
             percent,
             rpm));
