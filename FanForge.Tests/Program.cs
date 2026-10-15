@@ -1,4 +1,4 @@
-﻿using FanForge.Core;
+using FanForge.Core;
 
 // Simulated / policy tests. No physical fan writes happen here: the backend is a fake.
 int passed = 0;
@@ -703,6 +703,57 @@ using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { telemetryOnly })
     await engine.DetectAsync();
     Check(engine.State == FanSpeedState.DetectedUnverified, "telemetry-only backend reports detected unverified");
 }
+
+// ---- Evidence sheet: deterministic CSV ----
+var obs = new FanEvidenceObservation(
+    DateTimeOffset.Parse("2026-10-15T12:00:00Z"), "M3500QC", "M3500QC.316", "AsusACPI",
+    CapabilityLevel.Unsupported, CapabilityLevel.Unsupported, true,
+    4500, 3800, 55, 50, "Standard", ReadingQuality.Ok);
+Check(FanEvidence.CsvHeader.StartsWith("timestamp_utc,model,bios,backend"), "evidence header columns");
+Check(FanEvidence.CsvRow(obs) ==
+    "2026-10-15T12:00:00.0000000Z,M3500QC,M3500QC.316,AsusACPI,Unsupported,Unsupported,true,4500,3800,55,50,Standard,Ok",
+    "evidence csv row exact");
+var sparse = obs with { Model = "M,QC", CpuRpm = null, GpuCelsius = null };
+Check(FanEvidence.CsvRow(sparse).Contains("\"M,QC\""), "evidence csv escapes commas");
+Check(FanEvidence.CsvRow(sparse).Contains(",Unsupported,true,,3800,55,,"), "evidence csv leaves missing numbers blank");
+Check(FanEvidence.Csv(new[] { obs }).StartsWith(FanEvidence.CsvHeader + "\n"), "evidence csv starts with header");
+Check(FanEvidence.Csv(new[] { obs, obs }).TrimEnd('\n').Split('\n').Length == 3, "evidence csv one header plus rows");
+
+// ---- Evidence: control path detection ----
+Check(!FanEvidence.ControlPathExposed(new[] { obs }), "no control path when every channel unsupported");
+Check(FanEvidence.ControlPathExposed(new[] { obs with { PwmCpu = CapabilityLevel.Unverified } }),
+    "control path exposed when a channel is unverified");
+Check(FanEvidence.ControlPathExposed(new[] { obs with { PwmGpu = CapabilityLevel.Detected } }),
+    "control path exposed when a channel is detected");
+
+// ---- Evidence: verdict never reaches Verified without response AND safe restore ----
+Check(FanEvidence.Evaluate(false, 5, true, true, true) == PhysicalControlVerdict.Blocked,
+    "no verdict without an exposed path");
+Check(FanEvidence.Evaluate(true, 0, true, true, true) == PhysicalControlVerdict.InsufficientEvidence,
+    "no confirmations is insufficient evidence");
+Check(FanEvidence.Evaluate(true, 1, true, true, true) == PhysicalControlVerdict.InsufficientEvidence,
+    "one confirmation is still insufficient");
+Check(FanEvidence.Evaluate(true, 2, false, true, true) == PhysicalControlVerdict.RpmResponded,
+    "rpm response without restore proof is not verified");
+Check(FanEvidence.Evaluate(true, 2, true, false, true) == PhysicalControlVerdict.RpmResponded,
+    "rpm response without watchdog proof is not verified");
+Check(FanEvidence.Evaluate(true, 2, true, true, false) == PhysicalControlVerdict.RpmResponded,
+    "rpm response without resume proof is not verified");
+Check(FanEvidence.Evaluate(true, 2, true, true, true) == PhysicalControlVerdict.Verified,
+    "verified only with response and full restore proof");
+Check(FanEvidence.MinimumConfirmations == 2, "two independent confirmations are required");
+Check(FanEvidence.Evaluate(new[] { obs }, 2, true, true, true) == PhysicalControlVerdict.Blocked,
+    "row-based verdict blocked when no channel is exposed");
+Check(FanEvidence.Evaluate(new[] { obs with { PwmCpu = CapabilityLevel.Verified } }, 2, true, true, true)
+    == PhysicalControlVerdict.Verified, "row-based verdict verified when exposed and proven");
+
+// ---- Evidence: JSON manifest ----
+string evidenceJson = FanEvidence.ToJson(new[] { obs with { PwmCpu = CapabilityLevel.Unverified } },
+    PhysicalControlVerdict.RpmResponded);
+Check(evidenceJson.Contains("\"control_path_exposed\": true"), "manifest records exposed path");
+Check(evidenceJson.Contains("\"verdict\": \"RpmResponded\""), "manifest records verdict");
+Check(evidenceJson.Contains("\"backend\": \"AsusACPI\""), "manifest lists backend");
+Check(evidenceJson.Contains("\"pwm_cpu\": \"Unverified\""), "manifest records per-fan pwm level");
 
 Console.WriteLine("Passed: " + passed);
 
