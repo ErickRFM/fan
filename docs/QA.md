@@ -1,4 +1,4 @@
-# QA — Resultados automatizados (v0.9)
+# QA — Resultados automatizados (v1.0)
 
 ## Entorno de ejecución
 - OS: Microsoft Windows 11 Home Single Language, 10.0.26300, x64.
@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **252/252 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
+Resultado: **268/268 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -39,6 +39,7 @@ Resultado: **252/252 PASAN** (la accesibilidad de la UI no aporta pruebas unitar
 - **Recuperación ampliada**: ciclo completo aplicar → crash → recuperar, registro `Unchanged` cuando el firmware ya coincide (limpiando el registro), retención del registro si el registro es ilegible, rechazo de valores fuera de rango y de versiones desconocidas del códec.
 - **Códec WMI** (`AsusWmiCodec`): decodificación del bit de validez `0x10000` (casos `0x0001002D→4500`, `0x00010032→5000`, `0x00010024→3600`, `0x00010026→3800`), rechazo de centinelas (`0xFFFFFFFE`, `0xFFFFFFFF`) y de payloads fuera de rango (>120), y flag de validez ausente.
 - **Motor FanSpeed** (`FanSpeedEngine`, `SimulatedFanSpeedBackend`, `FakeSpeedBackend`): detección con backend verificado; aplicación confirmada vs. aceptada-sin-confirmar (nunca se reporta completa si no hay confirmación); promoción a `Verified` solo con aumento de RPM; rechazo de porcentaje fuera de rango; `Unsupported` cuando no hay PWM verificado; bloqueo de escritura ante lecturas incoherentes; degradación a `Unsupported` si la detección falla; restauración que limpia el estado manual; y pasada de seguridad sin control manual.
+- **Control por ventilador (v1.0)** (`PerFanSpeedBackend`): capacidades CPU/GPU independientes; `Both` rechazado si un ventilador no es controlable; aplicación CPU independiente de GPU (y viceversa); *ambos 100 %*; estado por ventilador (`ManualCpuPercent`/`ManualGpuPercent`); auditoría de `RequestedPercent`; restauración que limpia ambos ventiladores; `Compatible` para ruta no verificada (nunca escribible); `DetectedUnverified` para backend solo-telemetría; y restauración preventiva ante 0 RPM en control manual.
 
 Ninguna prueba toca hardware; los backends son mocks (`FakeBackend`, `FakeProfileChannel`, `FakeProfileStore`) y el reloj es determinista (`ManualTime`).
 
@@ -115,3 +116,13 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 - **Centro de control GUI**: pestaña **FanSpeed**; los controles de escritura quedan deshabilitados (ningún canal verificado). No se activó ningún control manual.
 - **Backends Win**: ATKACPI (RPM/perfiles), WMI (solo lectura, tolerante), HealthyTable (PWM *gated*, nunca auto-verificado) y PawnIO (stub deshabilitado). No se modificaron drivers ni el EC.
 - Pruebas: **252/252**; Release 0 avisos / 0 errores.
+
+## v1.0 — Control directo por ventilador
+- **Modelo por ventilador** (`FanChannelCapabilities`): probado que CPU y GPU se rastrean por separado; `Both` solo se considera controlable si **cada** ventilador lo es; una ruta `Unverified` reporta `Compatible` y **nunca** es escribible; un backend solo-telemetría reporta `DetectedUnverified`.
+- **Control independiente**: aplicar a CPU no altera el estado de GPU (ni al revés); *ambos 100 %* aplica a los dos; `RestoreAutomaticAsync` limpia ambos ventiladores.
+- **Auditoría**: cada transición registra `RequestedPercent` y `ObservedRpm` por separado (un solicitado nunca equivale a RPM alcanzadas).
+- **Seguridad**: con control manual activo, un ventilador que reporta 0 RPM dispara restauración preventiva (`EvaluateSafetyAsync` → `Restored`).
+- **CLI de solo lectura**: `--fan-diagnostics` (capacidades por ventilador y motivo del bloqueo) y `--fan-research-report` (matriz de interfaces + detección en vivo). Ninguno escribe PWM.
+- **UI**: pestaña FanSpeed responsiva (reflujo de texto por ancho) y gating por ventilador; revisada a 100/125/150/200 % DPI.
+- **M3500QC**: sigue **sin canal PWM verificado** (`HealthyTable_FanCounts()=-1`, curvas ATKACPI `-65536`); el control manual permanece bloqueado. No se forzó el EC ni se modificaron drivers.
+- Pruebas: **268/268** (antes 252); Release 0 avisos / 0 errores.

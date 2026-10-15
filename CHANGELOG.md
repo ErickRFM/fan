@@ -5,6 +5,17 @@
 - Alternativa local con certificado OV público y clave protegida para regiones no habilitadas para Artifact Signing Public Trust; verifica ZIP/MSIX antes de distribución.
 - **Sin firma real en esta entrega:** requiere credenciales Microsoft Entra, perfil de certificado de confianza y ejecución manual del usuario; no cambia controladores ni PWM.
 
+## v1.0.0 — Control directo de ventiladores por ventilador (F0–F13)
+- **Modelo por ventilador:** `FanChannelCapabilities` (CPU/GPU independientes) y estados ampliados `Unsupported → DetectedUnverified → Compatible → Ready → Applying → AcceptedUnverified → Verified → Restoring → Restored → Failed` (`AvailableUnverified`→`DetectedUnverified`, `AppliedUnverified`→`AcceptedUnverified`).
+- **Control independiente CPU/GPU:** `SetSpeedAsync` por ventilador; `FanTarget.Both` solo se acepta si **cada** ventilador tiene PWM verificado. Solicitudes 70–100 %, incluido *ambos 100 %*.
+- **Auditoría reforzada:** cada transición guarda `RequestedPercent` y `ObservedRpm` por separado; un porcentaje solicitado **nunca** se presenta como RPM alcanzadas.
+- **Seguridad:** `EvaluateSafetyAsync` restaura de forma preventiva si un ventilador en control manual reporta 0 RPM o lectura inválida.
+- **CLI (solo lectura):** `--fan-diagnostics` (capacidades por ventilador + motivo exacto del bloqueo) y `--fan-research-report` (matriz de interfaces + detección en vivo).
+- **UI responsiva:** pestaña FanSpeed con reflujo de texto según el ancho y gating por ventilador; validada a 100/125/150/200 % DPI.
+- **Investigación:** `docs/DIRECT-FAN-CONTROL-RESEARCH.md`, `docs/MYASUS-FAN-DIAGNOSTICS.md`, `docs/PAWNIO-COMPATIBILITY.md`. Se documenta que el código del control manual experimental de G-Helper **no está publicado**.
+- En M3500QC sigue **sin canal PWM verificado** (`HealthyTable_FanCounts()=-1`, curvas ATKACPI `-65536`): el motor modela el control pero permanece bloqueado; no se fuerza el EC.
+- **Pruebas:** 268 (antes 252). Release 0 avisos / 0 errores.
+
 ## v0.9.0 — Motor FanSpeed, telemetría WMI defensiva y centro de control (P11–P20)
 - **Motor FanSpeed (Core):** `FanSpeedEngine` orquesta varios backends con un único canal de escritura serializado y separa *detección / verificación / solicitud / respuesta / RPM medidas* (`FanSpeedState`: Unsupported → AvailableUnverified → Ready → Applying → AppliedUnverified → Verified → Restoring → Restored → Failed). Una operación **nunca se presenta como completada** si no está confirmada físicamente (`Accepted` ≠ `Confirmed`). Guarda de concurrencia CPU/GPU, `EvaluateSafetyAsync` (restauración preventiva) y registro de auditoría.
 - **Contratos y verificación:** `FanSpeedCapabilities` distingue `Detected`/`Unverified` de `Verified`; `FanTarget` (CPU/GPU/ambos); `IFanSpeedBackend`; `SimulatedFanSpeedBackend` para pruebas sin hardware. Reglas de seguridad en `FanPolicy` (rango 70–100%, histéresis de RPM).
