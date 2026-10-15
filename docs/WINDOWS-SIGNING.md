@@ -48,6 +48,43 @@ Mientras no exista un ejecutable firmado y aceptado, las pruebas permitidas se e
 firmar ni desactivar nada. Los comandos expuestos por la CLI (`--probe`, `--hardware-diagnose`,
 `--set-profile`, `--log-telemetry`, `--restore`) son los mismos que usa la GUI.
 
+## Importante: México y disponibilidad de Artifact Signing Public Trust
+
+Según los [requisitos oficiales de Microsoft](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart),
+a octubre de 2026 **México no está en la lista de países habilitados para
+identidades Public Trust** de Artifact Signing. Para desarrolladores individuales,
+Public Trust se limita a Estados Unidos y Canadá. Los perfiles `Private Trust`
+no sustituyen una firma de confianza pública para Smart App Control.
+
+Si tu identidad de facturación y residencia no cumplen los requisitos,
+**NO intentes registrar una identidad extranjera ficticia**. El workflow OIDC
+es una opción disponible para quienes sí cumplan los requisitos; para México
+puedes usar la siguiente alternativa con una autoridad de certificación.
+
+## Alternativa: certificado OV de CA y firma local protegida
+
+Adquiere legítimamente un certificado de firma de código **OV** de una autoridad
+reconocida y utiliza su clave en token/HSM o proveedor seguro compatible con
+Windows Certificate Store. No exportes ni subas PFX/clave privada a GitHub.
+El script `scripts/firmar-distribucion-local.ps1` toma el thumbprint del
+certificado que YA tengas instalado y firma EXE y MSIX con ese mismo editor,
+verificando ambas firmas antes de crear ZIP/MSIX y hashes.
+
+```powershell
+# Visualizar certificados de firma disponibles; no muestra claves privadas
+Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+  Select-Object Subject, Thumbprint, NotAfter, HasPrivateKey
+
+# Solo DESPUÉS de instalar tu certificado público de firma válido:
+.\scripts\firmar-distribucion-local.ps1 -CertificateThumbprint 'TU_THUMBPRINT_40_HEX' -Version '0.9.1.0'
+```
+
+Necesitas SDK de Windows (SignTool, MakeAppx), .NET 8 y acceso al dispositivo
+criptográfico (puede solicitar PIN). Si el certificado está en
+`Cert:\LocalMachine\My`, pasa `-MachineStore`. Esto no es gratis: los
+certificados OV públicos suelen tener coste y verifican la identidad del editor.
+Nunca añadas certificados personales a Trusted Root para simular confianza pública.
+
 ## CI de firma confiable (GitHub Actions, preparado en esta rama)
 
 FanForge incorpora `.github/workflows/signed-release.yml`, un flujo **manual**
