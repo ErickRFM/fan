@@ -328,6 +328,36 @@ var interactive = new ProfileGuard(staleChannel, staleStore);
 Check(interactive.OriginalWireMode is null, "interactive session ignores stale record");
 Check(interactive.RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured, "no stale restore");
 
+// ---- Telemetry CSV: layout keeps a confirmed profile change separate from measured RPM ----
+Check(TelemetryCsv.Header.StartsWith("timestamp_utc,cpu_rpm,gpu_rpm,cpu_celsius,gpu_celsius"), "csv header");
+Check(TelemetryCsv.Header.EndsWith("profile,profile_confirmed,note"), "csv header profile columns");
+var csvPoint = new HistoryPoint(DateTimeOffset.UnixEpoch, 45, null, 4400, 3800);
+string csvRow = TelemetryCsv.Row(csvPoint, "Performance", true);
+Check(csvRow.StartsWith("1970-01-01T00:00:00.0000000Z,4400,3800,45,,"), "csv row values in order");
+Check(csvRow.EndsWith("Performance,true,"), "csv row records confirmed profile");
+string unknownRow = TelemetryCsv.Row(csvPoint, null, null);
+Check(unknownRow.EndsWith("unknown,,"), "csv unknown profile with empty confirmed flag");
+Check(TelemetryCsv.Row(csvPoint, "a,b", null, "x\"y").Contains("\"a,b\""), "csv escapes commas");
+Check(TelemetryCsv.Row(csvPoint, "a,b", null, "x\"y").Contains("\"x\"\"y\""), "csv escapes quotes");
+Check(TelemetryCsv.Escape("plain") == "plain" && TelemetryCsv.Escape(null) == "", "csv escape basics");
+Check(TelemetryCsv.ProfileChangeNote(FanProfile.Standard, true).StartsWith("profile_change_confirmed"),
+    "csv confirmed profile note");
+Check(TelemetryCsv.ProfileChangeNote(FanProfile.Standard, false).StartsWith("profile_change_unverified"),
+    "csv unverified profile note");
+Check(TelemetryCsv.ObservedNote(true) == "rpm_increase_observed", "csv observed increase note");
+Check(TelemetryCsv.ObservedNote(false) == "rpm_increase_not_observed", "csv observed no increase note");
+
+// ---- Policy: wire mode to profile name ----
+Check(FanPolicy.ProfileName(0) == "Standard" && FanPolicy.ProfileName(1) == "Whisper" &&
+      FanPolicy.ProfileName(2) == "Performance", "profile names");
+Check(FanPolicy.ProfileName(9) == "unknown", "unknown wire mode name");
+
+// ---- History: snapshot projection is reusable ----
+var projected = TelemetryHistory.FromSnapshot(new TelemetrySnapshot(
+    new[] { new FanRpm(FanType.Cpu, 4400), new FanRpm(FanType.Gpu, -1) },
+    new TemperatureReading(50, null), DateTimeOffset.UnixEpoch));
+Check(projected.CpuRpm == 4400 && projected.GpuRpm is null && projected.CpuCelsius == 50, "FromSnapshot projects");
+
 Console.WriteLine("Passed: " + passed);
 
 // ---- Test doubles (simulated controller; never touches real hardware) ----
