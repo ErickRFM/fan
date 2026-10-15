@@ -1,4 +1,4 @@
-using FanForge.Core;
+﻿using FanForge.Core;
 
 // Simulated / policy tests. No physical fan writes happen here: the backend is a fake.
 int passed = 0;
@@ -589,7 +589,7 @@ var unconfirmedSimulated = new SimulatedFanSpeedBackend(autoConfirm: false);
 using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { unconfirmedSimulated }))
 {
     var accepted = await engine.SetSpeedAsync(FanTarget.Cpu, 80);
-    Check(accepted.Accepted && !accepted.Confirmed && accepted.State == FanSpeedState.AppliedUnverified,
+    Check(accepted.Accepted && !accepted.Confirmed && accepted.State == FanSpeedState.AcceptedUnverified,
         "accepted but unconfirmed is not reported complete");
     var confirmed = await engine.ConfirmAsync();
     Check(confirmed.Confirmed && confirmed.State == FanSpeedState.Verified, "rpm response promotes to verified");
@@ -628,6 +628,80 @@ using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { throwingDetect }
 using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { new SimulatedFanSpeedBackend() }))
 {
     Check(await engine.EvaluateSafetyAsync() is null, "safety pass is a no-op without manual control");
+}
+
+// ---- FanSpeed v1.0: per-fan independent control ----
+var cpuOnly = new PerFanSpeedBackend(CapabilityLevel.Verified, CapabilityLevel.Unsupported);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { cpuOnly }))
+{
+    var caps = await engine.DetectAsync();
+    Check(caps[0].CpuPwm == CapabilityLevel.Verified && caps[0].GpuPwm == CapabilityLevel.Unsupported,
+        "per-fan capability tracks cpu/gpu independently");
+    Check(caps[0].CanControl(FanTarget.Cpu) && !caps[0].CanControl(FanTarget.Gpu)
+        && !caps[0].CanControl(FanTarget.Both), "both requires every fan to be controllable");
+
+    var cpuApply = await engine.SetSpeedAsync(FanTarget.Cpu, 80);
+    Check(cpuApply.Confirmed && engine.ManualCpuPercent == 80 && engine.ManualGpuPercent is null,
+        "cpu-only apply records cpu manual state only");
+    Check(engine.ManualTarget == FanTarget.Cpu, "manual target is cpu with only cpu under control");
+
+    var gpuRejected = await engine.SetSpeedAsync(FanTarget.Gpu, 80);
+    Check(gpuRejected.State == FanSpeedState.Unsupported && !gpuRejected.Accepted,
+        "gpu request is unsupported when gpu pwm is unverified");
+
+    var bothRejected = await engine.SetSpeedAsync(FanTarget.Both, 80);
+    Check(bothRejected.State == FanSpeedState.Unsupported, "both request is unsupported when one fan is unusable");
+    await engine.RestoreAutomaticAsync();
+}
+
+var bothFans = new PerFanSpeedBackend(CapabilityLevel.Verified, CapabilityLevel.Verified);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { bothFans }))
+{
+    await engine.DetectAsync();
+    var cpu = await engine.SetSpeedAsync(FanTarget.Cpu, 70);
+    Check(cpu.Confirmed && engine.ManualCpuPercent == 70 && engine.ManualGpuPercent is null,
+        "cpu apply is independent of gpu");
+    var gpu = await engine.SetSpeedAsync(FanTarget.Gpu, 100);
+    Check(gpu.Confirmed && engine.ManualCpuPercent == 70 && engine.ManualGpuPercent == 100,
+        "gpu apply does not overwrite cpu percent");
+    Check(engine.ManualTarget == FanTarget.Both, "both fans under manual control");
+
+    var both = await engine.SetSpeedAsync(FanTarget.Both, 100);
+    Check(both.Confirmed && engine.ManualCpuPercent == 100 && engine.ManualGpuPercent == 100,
+        "both-100 applies to both fans");
+    Check(engine.Audit.Any(a => a.RequestedPercent == 100),
+        "audit records the requested percent");
+    await engine.RestoreAutomaticAsync();
+    Check(!engine.Manual && engine.ManualCpuPercent is null && engine.ManualGpuPercent is null,
+        "restore clears both-fan manual state");
+}
+
+// ---- FanSpeed v1.0: safety triggers preventive restore ----
+var safetyBackend = new PerFanSpeedBackend(CapabilityLevel.Verified, CapabilityLevel.Verified);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { safetyBackend }))
+{
+    await engine.DetectAsync();
+    await engine.SetSpeedAsync(FanTarget.Cpu, 80);
+    safetyBackend.CpuRpm = 0;
+    var safety = await engine.EvaluateSafetyAsync();
+    Check(safety is not null && safety.State == FanSpeedState.Restored && !engine.Manual,
+        "zero rpm under manual control triggers preventive restore");
+}
+
+var compatibleOnly = new FakeSpeedBackend("candidate", CapabilityLevel.Unverified);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { compatibleOnly }))
+{
+    await engine.DetectAsync();
+    Check(engine.State == FanSpeedState.Compatible, "unverified control path reports compatible");
+    var blocked = await engine.SetSpeedAsync(FanTarget.Both, 90);
+    Check(blocked.State == FanSpeedState.Unsupported, "compatible-but-unverified path is never writable");
+}
+
+var telemetryOnly = new FakeSpeedBackend("telemetry", CapabilityLevel.Unsupported);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { telemetryOnly }))
+{
+    await engine.DetectAsync();
+    Check(engine.State == FanSpeedState.DetectedUnverified, "telemetry-only backend reports detected unverified");
 }
 
 Console.WriteLine("Passed: " + passed);
@@ -739,9 +813,65 @@ sealed class FakeSpeedBackend : IFanSpeedBackend
 
     public Task<FanSpeedCommandResult> SetSpeedAsync(FanTarget target, int percent, CancellationToken cancellationToken) =>
         Task.FromResult(Accept
-            ? new FanSpeedCommandResult(FanSpeedState.AppliedUnverified, "simulated accept", percent, 5000)
+            ? new FanSpeedCommandResult(FanSpeedState.AcceptedUnverified, "simulated accept", percent, 5000)
             : new FanSpeedCommandResult(FanSpeedState.Unsupported, "simulated reject", percent));
 
     public Task<FanSpeedCommandResult> RestoreAutomaticAsync(CancellationToken cancellationToken) =>
         Task.FromResult(new FanSpeedCommandResult(FanSpeedState.Restored, "simulated restore"));
 }
+
+/// <summary>Per-fan test double: independent CPU/GPU capabilities and mutable tachometers.</summary>
+sealed class PerFanSpeedBackend : IFanSpeedBackend
+{
+    private readonly CapabilityLevel _cpu;
+    private readonly CapabilityLevel _gpu;
+
+    public PerFanSpeedBackend(CapabilityLevel cpu, CapabilityLevel gpu)
+    {
+        _cpu = cpu;
+        _gpu = gpu;
+    }
+
+    public string Name => "perfan";
+    public int CpuRpm { get; set; } = 2000;
+    public int GpuRpm { get; set; } = 2000;
+
+    public Task<FanSpeedCapabilities> DetectAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new FanSpeedCapabilities(
+            Name,
+            FanChannelCapabilities.Combine(_cpu, _gpu),
+            CapabilityLevel.Unsupported,
+            SupportsProfiles: false,
+            TelemetryAvailable: true,
+            Note: "test double",
+            PerFan: new FanChannelCapabilities(_cpu, _gpu)));
+
+    public Task<FanSpeedReading> ReadAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new FanSpeedReading(
+            CpuRpm, GpuRpm, 50, 45, "Standard", Name, ReadingQuality.Ok, DateTimeOffset.UtcNow));
+
+    public Task<FanSpeedCommandResult> SetSpeedAsync(FanTarget target, int percent, CancellationToken cancellationToken)
+    {
+        bool cpu = target is FanTarget.Cpu or FanTarget.Both;
+        bool gpu = target is FanTarget.Gpu or FanTarget.Both;
+        if ((cpu && _cpu != CapabilityLevel.Verified) || (gpu && _gpu != CapabilityLevel.Verified))
+        {
+            return Task.FromResult(new FanSpeedCommandResult(
+                FanSpeedState.Unsupported, "fan not controllable", percent, null, target));
+        }
+
+        int rpm = percent * 50;
+        if (cpu) CpuRpm = rpm;
+        if (gpu) GpuRpm = rpm;
+        return Task.FromResult(new FanSpeedCommandResult(
+            FanSpeedState.Verified, "applied", percent, rpm, target));
+    }
+
+    public Task<FanSpeedCommandResult> RestoreAutomaticAsync(CancellationToken cancellationToken)
+    {
+        CpuRpm = 2000;
+        GpuRpm = 2000;
+        return Task.FromResult(new FanSpeedCommandResult(FanSpeedState.Restored, "restored"));
+    }
+}
+
