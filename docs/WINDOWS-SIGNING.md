@@ -33,20 +33,14 @@ app concreta** de SAC sin desactivarlo.
 Un certificado **autofirmado** no es de confianza para Windows por defecto y provoca un bloqueo fuerte
 de SmartScreen: **no sirve** para distribución pública.
 
-## Método provisional autorizado (el que usa este repo)
+## Pruebas antes de disponer de una firma
 
-Mientras no exista un ejecutable firmado y aceptado, las pruebas permitidas se ejecutan sobre el
-**host de .NET ya firmado y de confianza**:
-
-```powershell
-& "C:\Program Files\dotnet\dotnet.exe" `
-  "FanForge.Win\bin\Release\net8.0-windows\win-x64\FanForge.dll" --hardware-diagnose
-```
-
-`dotnet.exe` está firmado por Microsoft y es de confianza; carga nuestro ensamblado administrado
-`FanForge.dll`. Esto permite validar toda la lógica (telemetría, perfiles, CSV, diagnóstico) **sin**
-firmar ni desactivar nada. Los comandos expuestos por la CLI (`--probe`, `--hardware-diagnose`,
-`--set-profile`, `--log-telemetry`, `--restore`) son los mismos que usa la GUI.
+El código se puede compilar y probar en CI con tests lógicos. Un
+`FanForge.exe` sin firma **no** debe presentarse como ejecutable
+confiable ni forzar su apertura en Windows con Smart App Control activo.
+No recomendamos usar otros ejecutables firmados como anfitrión
+para intentar sortear la política. Para distribución y validación en
+el equipo físico, emplea el flujo de firma pública de este documento.
 
 ## Importante: México y disponibilidad de Artifact Signing Public Trust
 
@@ -149,7 +143,7 @@ https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/code-si
 
 ## Plan recomendado
 
-1. **Ahora:** seguir con el host `dotnet.exe` para las pruebas autorizadas.
+1. **Ahora:** ejecutar tests y validación estructural en CI; no sortear Smart App Control.
 2. **Cuando esté disponible el servicio y haya identidad/certificado:** configurar los secrets OIDC y ejecutar manualmente el workflow de firma indicado arriba. Mantener una identidad de firma consistente para acumular reputación.
 3. **Alternativa de distribución:** publicar como **MSIX** (Store o distribución firmada) para no
    depender de un certificado propio.
