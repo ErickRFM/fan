@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **108/108 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
+Resultado: **110/110 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -55,5 +55,11 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 - **RPM reales:** `CPU_Fan(0x00110013)` = 44–61 (→ 4400–6100 RPM), `GPU_Fan(0x00110014)` = 38–40 (→ 3800–4000 RPM).
 - **Temperatura:** `Temp_CPU(0x00120094)`/`Temp_GPU(0x00120097)` = `-65536` (**no soportado**); la zona térmica ACPI (WMI) aportó ~90 °C (aproximada).
 - **Capacidades:** `perfiles=True`, `curvas=False`, `pwm=False`. `VivoBookMode(0x00110019)` = `131074` (soportado); `PerformanceMode(0x00120075)` = `-65536`.
-- Conclusión: **telemetría de RPM vía ATKACPI operativa** y **cambio de perfil disponible**; PWM/curvas ATKACPI no existen en este modelo. La escritura de perfil queda pendiente de autorización del usuario presente.
+- Conclusión: **telemetría de RPM vía ATKACPI operativa** y **cambio de perfil disponible**; PWM/curvas ATKACPI no existen en este modelo.
+
+### Escritura de perfil + robustez de lectura — 2026-10-15 (v0.4.7, elevado, autorizado)
+- `--set-profile` ejecutado en el M3500QC: Silent `131074→131073`, Standard `131073→131072`, Performance `131072→131074`; todas `status=1`, `verificado=True`, y se restauró al modo original (`131074`). Codificación `raw = 131072 | wireMode`.
+- **Bug de robustez corregido:** un endpoint no soportado (`Temp_CPU`) hacía fallar `DeviceIoControl` y **invalidaba el handle** para TODAS las lecturas siguientes; `ReadAsync` perdía las RPM ya leídas. Ahora cada endpoint se lee con `SafeGet` (tolerante) y `--hardware-diagnose` reporta por método.
+- Evidencia: RPM reales `CPU=7000/6300`, `GPU=4300/4200`; `Temp_CPU/GPU`, `PerformanceMode` y curvas devuelven `ERROR ... DeviceIoControl failed` (no consultables en este BIOS).
+- Conclusión: **cambio de perfil físico verificado y reversible**; la temperatura sigue viniendo de WMI.
 

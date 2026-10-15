@@ -16,7 +16,7 @@
 - [x] Confirmar temperatura vía zona térmica ACPI (WMI), aproximada (~90 °C).
 - [x] Confirmar capacidades reales: perfiles = sí; curvas = no; PWM ATKACPI = no.
 - [ ] Confirmar control PWM 70–100% por HealthyTable (bloqueado por driver `AsusSAIO`).
-- [ ] Validar escritura de perfil ATKACPI en banco (pendiente de autorización del usuario).
+- [x] Escritura de perfil ATKACPI validada en el M3500QC (Silent/Standard/Performance, verificado por lectura y reversible).
 - [ ] Confirmar recuperación en fallas, suspensión y salida normal.
 - [ ] Comparar RPM con ProArt Creator Hub.
 
@@ -48,5 +48,6 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [x] Mostrar tarjetas CPU/GPU con rpm ACPI aunque HealthyTable esté bloqueado.
 - [x] Proteger confirmación de escritura de perfil frente a sentinelas negativos.
 - [x] Aplicar control de perfiles solo cuando el hardware declare soporte.
-- [ ] Validar en M3500QC real que cada modo solicitado se acepta y que las RPM cambian según temperatura.
+- [x] Validado en M3500QC real: Silent/Standard/Performance se aceptan y se confirman por lectura (reversible).
+- [ ] Medir de forma sostenida que las RPM siguen la temperatura en cada modo (comparar con ProArt Creator Hub).
 - [ ] Investigar otra vía OEM oficialmente admitida para control manual; ATKACPI no expone curvas/PWM en este BIOS.
