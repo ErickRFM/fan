@@ -48,10 +48,10 @@ internal sealed class AsusAcpiTelemetry : IFanTelemetryProvider, IDisposable
             {
                 try
                 {
-                    rpms.Add(new FanRpm(FanType.Cpu, DecodeRpm(AsusAcpiNative.DeviceGet(handle, AsusAcpiNative.CPU_Fan))));
-                    rpms.Add(new FanRpm(FanType.Gpu, DecodeRpm(AsusAcpiNative.DeviceGet(handle, AsusAcpiNative.GPU_Fan))));
-                    int cpu = DecodeTemp(AsusAcpiNative.DeviceGet(handle, AsusAcpiNative.Temp_CPU));
-                    int gpu = DecodeTemp(AsusAcpiNative.DeviceGet(handle, AsusAcpiNative.Temp_GPU));
+                    rpms.Add(new FanRpm(FanType.Cpu, DecodeRpm(SafeGet(handle, AsusAcpiNative.CPU_Fan))));
+                    rpms.Add(new FanRpm(FanType.Gpu, DecodeRpm(SafeGet(handle, AsusAcpiNative.GPU_Fan))));
+                    int cpu = DecodeTemp(SafeGet(handle, AsusAcpiNative.Temp_CPU));
+                    int gpu = DecodeTemp(SafeGet(handle, AsusAcpiNative.Temp_GPU));
                     if (cpu >= 0) cpuTemp = cpu;
                     if (gpu >= 0) gpuTemp = gpu;
                 }
@@ -60,6 +60,17 @@ internal sealed class AsusAcpiTelemetry : IFanTelemetryProvider, IDisposable
             return new TelemetrySnapshot(rpms, new TemperatureReading(cpuTemp, gpuTemp), DateTimeOffset.UtcNow);
         }, cancellationToken);
 
+    /// <summary>
+    /// Reads one endpoint, tolerating drivers that fail the IOCTL for unsupported methods.
+    /// A failure becomes the invalid sentinel so it never discards already-read fan values.
+    /// </summary>
+    private static int SafeGet(IntPtr handle, uint deviceId)
+    {
+        try { return AsusAcpiNative.DeviceGet(handle, deviceId); }
+        catch { return -65536; }
+    }
+
+    /// <summary>Decodes an ATKACPI temperature in degrees Celsius; out-of-range values are invalid.</summary>
     internal static int DecodeTemp(int raw) => FanPolicy.AcpiTemperature(raw);
     internal static int DecodeRpm(int raw) => FanPolicy.AcpiFanRpm(raw);
 

@@ -25,6 +25,12 @@
 - **UI con reconocimiento de capacidades:** si HealthyTable está bloqueado, muestra RPM CPU/GPU y temperatura en solo lectura y habilita los perfiles ASUS (Silencioso/Estándar/Rendimiento/Máximo); el control PWM manual solo se habilita cuando HealthyTable responde.
 - **Pruebas:** 55 comprobaciones (antes 44), incluidas la decodificación ATKACPI (`AcpiFanRpm`, `AcpiTemperature`) y el intercambio de modo VivoBook. Ninguna escribe PWM físico.
 
+## 0.4.7 — Lectura ATKACPI robusta y escritura de perfil validada
+- **Fix de robustez:** un endpoint ATKACPI no soportado (p. ej. temperatura) hace fallar `DeviceIoControl` e invalida el handle; `ReadAsync` ahora lee cada valor de forma tolerante (`SafeGet`), de modo que las RPM válidas no se pierden por una temperatura fallida.
+- **Diagnóstico:** `--hardware-diagnose` reporta el error por método (antes abortaba en el primero) y libera el handle de control antes de la lectura RAW.
+- **Validación física (M3500QC, autorizada):** `--set-profile` confirmado para Silent/Standard/Performance con lectura posterior y retorno al modo original; codificación `raw = 131072 | wireMode`.
+- **Pruebas:** lectura de perfil con el flag `0x20000` (total del proyecto tras v0.6: 117).
+
 ## 0.4.6 — Accesibilidad y atajos de teclado
 - **DPI:** modo `PerMonitorV2` en el proyecto y `AutoScaleMode.Dpi` en el formulario; la disposición escala a 125–200 %.
 - **Teclado:** `Esc` devuelve el control a BIOS/ASUS y `F5` fuerza un refresco inmediato; se muestra la ayuda en el pie.

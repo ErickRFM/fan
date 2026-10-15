@@ -37,9 +37,11 @@ Detener inmediatamente ante RPM cero anómalas, bloqueos, temperaturas excesivas
 | Modelo M3500QC y BIOS | Salida diagnóstico (`M3500QC.316`) | Verificado (info) |
 | Versión más reciente de `AsusWinIO64.dll` | Salida diagnóstico | Verificado (info, 1.1.4.0) |
 | FanCount y RPM automático | `--probe` en consola elevada | **Bloqueado: API devuelve -1** |
-| PWM 80% | Variación real en RPM | Pendiente (bloqueado) |
-| PWM 100% | Variación real en RPM | Pendiente (bloqueado) |
-| Volver a BIOS | Lecturas y comportamiento | Pendiente (bloqueado) |
+| RPM reales vía ATKACPI | `--hardware-diagnose` elevado | **Verificado (CPU/GPU reales)** |
+| Escritura de perfil ATKACPI | `--set-profile` + lectura posterior | **Verificado (3 perfiles, reversible)** |
+| PWM 80% | Variación real en RPM | Pendiente (bloqueado por `AsusSAIO`) |
+| PWM 100% | Variación real en RPM | Pendiente (bloqueado por `AsusSAIO`) |
+| Volver a BIOS | Lecturas y comportamiento | Pendiente (bloqueado por `AsusSAIO`) |
 | Recuperación watchdog | Resultado en PC físico | Pendiente |
 
 ## Hallazgo físico — 2026-10-14 (elevado)
@@ -88,12 +90,42 @@ Ejecutar con:
 Validación externa recomendada: comparar el orden de magnitud y la tendencia con
 **ASUS ProArt Creator Hub** (que en este modelo muestra RPM y temperaturas).
 
-### Escritura de perfil (requiere operador presente)
+### Escritura de perfil — VALIDADA en el equipo físico — 2026-10-15 (v0.4.7, elevado)
 
-El cambio de perfil ASUS (`--set-profile` o los botones de la UI) se realiza por ATKACPI y se
-**verifica leyendo de nuevo** el modo. No se ha ejecutado todavía en el equipo físico: la
-validación de escritura queda pendiente de autorización explícita del usuario con la persona
-presente. Es una operación reversible (no toca EC crudo ni firmware).
+Autorizado por el usuario con la persona presente. El cambio de perfil ASUS (`--set-profile`)
+se realiza por ATKACPI (`DEVS` sobre `VivoBookMode 0x00110019`) y se **verifica leyendo de nuevo**
+el modo. Cada escritura devolvió `status=1` y `verificado=True`; se restauró al modo original:
+
+```
+Baseline / restaurado: VivoBookMode = 131074   (Performance, wire 2)
+Whisper (Silent)  : raw 131074 -> 131073  status=1  verificado=True
+Standard          : raw 131073 -> 131072  status=1  verificado=True
+Performance       : raw 131072 -> 131074  status=1  verificado=True
+```
+
+Codificación confirmada: `raw = 0x20000 (131072) | wireMode`, con
+`Silent=1`, `Standard=0`, `Performance=2`. RPM simultáneas: CPU 7000 → 6300, GPU 4300 → 4200
+(CPU 77 °C, zona ACPI). La operación es completamente reversible y no toca EC crudo ni firmware.
+
+### Robustez de lectura ATKACPI — 2026-10-15 (v0.4.7)
+
+Se detectó que un método **no soportado** (p. ej. `Temp_CPU 0x00120094`) hace fallar
+`DeviceIoControl`, lo que **invalida el handle para todas las lecturas posteriores**. Antes del
+arreglo, `ReadAsync` perdía las RPM ya leídas al abortar en la lectura de temperatura (el gestor
+descartaba la instantánea). Ahora cada endpoint se lee de forma tolerante (`SafeGet`): las RPM se
+capturan primero y una temperatura fallida no las descarta. `--hardware-diagnose` reporta el error
+por método en vez de abortar.
+
+```
+Raw CPU_Fan(0x00110013)=70    Raw GPU_Fan(0x00110014)=43    Raw VivoBookMode=131074
+Raw Temp_CPU(0x00120094)= ERROR Win32Exception: ATKACPI DeviceIoControl failed
+Raw Temp_GPU(0x00120097)= ERROR Win32Exception: ATKACPI DeviceIoControl failed
+Raw PerformanceMode(0x00120075)= ERROR ...   Raw DevsCPUFanCurve/GPU = ERROR ...
+```
+
+Conclusión: en este BIOS los endpoints de **temperatura y curvas no son consultables** (la llamada
+falla y deja el handle inservible); las **RPM y el modo VivoBook sí**. La temperatura se obtiene
+por WMI (zona térmica ACPI).
 
 ## Causa probable (documentada, no modificada)
 

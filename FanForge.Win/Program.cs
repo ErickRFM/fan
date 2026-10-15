@@ -84,22 +84,23 @@ internal static class Program
             Report("RPM: " + string.Join(" / ", snap.Rpms.Select(r => r.Type + "=" + r.Value)));
             Report("Temperaturas: CPU=" + (snap.Temperatures.CpuCelsius?.ToString() ?? "n/a") +
                    " GPU=" + (snap.Temperatures.GpuCelsius?.ToString() ?? "n/a"));
-            using var control = new AsusAcpiControlBackend();
-            var controlCaps = control.GetCapabilitiesAsync(CancellationToken.None).GetAwaiter().GetResult();
+            FanCapabilities controlCaps;
+            using (var control = new AsusAcpiControlBackend())
+                controlCaps = control.GetCapabilitiesAsync(CancellationToken.None).GetAwaiter().GetResult();
             Report("Control: perfiles=" + controlCaps.SupportsProfiles + " curvas=" + controlCaps.SupportsFanCurves +
                    " pwm=" + controlCaps.SupportsPwmDirect);
             if (AsusAcpiNative.TryOpen(out var rawHandle))
             {
                 try
                 {
-                Report("Raw Temp_CPU(0x00120094)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.Temp_CPU));
-                Report("Raw Temp_GPU(0x00120097)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.Temp_GPU));
-                Report("Raw CPU_Fan(0x00110013)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.CPU_Fan));
-                Report("Raw GPU_Fan(0x00110014)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.GPU_Fan));
-                Report("Raw VivoBookMode(0x00110019)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.VivoBookMode));
-                Report("Raw PerformanceMode(0x00120075)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.PerformanceMode));
-                Report("Raw DevsCPUFanCurve(0x00110024)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.DevsCPUFanCurve));
-                Report("Raw DevsGPUFanCurve(0x00110025)=" + AsusAcpiNative.DeviceGet(rawHandle, AsusAcpiNative.DevsGPUFanCurve));
+                    ReportRaw(rawHandle, "CPU_Fan(0x00110013)", AsusAcpiNative.CPU_Fan);
+                    ReportRaw(rawHandle, "GPU_Fan(0x00110014)", AsusAcpiNative.GPU_Fan);
+                    ReportRaw(rawHandle, "VivoBookMode(0x00110019)", AsusAcpiNative.VivoBookMode);
+                    ReportRaw(rawHandle, "Temp_CPU(0x00120094)", AsusAcpiNative.Temp_CPU);
+                    ReportRaw(rawHandle, "Temp_GPU(0x00120097)", AsusAcpiNative.Temp_GPU);
+                    ReportRaw(rawHandle, "PerformanceMode(0x00120075)", AsusAcpiNative.PerformanceMode);
+                    ReportRaw(rawHandle, "DevsCPUFanCurve(0x00110024)", AsusAcpiNative.DevsCPUFanCurve);
+                    ReportRaw(rawHandle, "DevsGPUFanCurve(0x00110025)", AsusAcpiNative.DevsGPUFanCurve);
                 }
                 finally { AsusAcpiNative.Close(rawHandle); }
             }
@@ -112,6 +113,13 @@ internal static class Program
             Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
             return 2;
         }
+    }
+
+    /// <summary>Reads one raw endpoint, reporting per-method failures instead of aborting.</summary>
+    private static void ReportRaw(IntPtr handle, string label, uint deviceId)
+    {
+        try { Report("Raw " + label + "=" + AsusAcpiNative.DeviceGet(handle, deviceId)); }
+        catch (Exception ex) { Report("Raw " + label + "= ERROR " + ex.GetType().Name + ": " + ex.Message); }
     }
 
     /// <summary>Applies an ASUS performance profile via ATKACPI (verified by read-back).</summary>
