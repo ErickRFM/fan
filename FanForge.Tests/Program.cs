@@ -378,6 +378,39 @@ Check(new ProfileGuard(new FakeProfileChannel(0), new FakeProfileStore(), recove
         .RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured,
     "second recovery with empty store is a no-op");
 
+// ---- Recovery audit: full crash lifecycle (apply -> crash -> recover) ----
+var lifeStore = new FakeProfileStore();
+var lifeSession = new ProfileGuard(new FakeProfileChannel(1), lifeStore);
+Check(lifeSession.Apply(FanProfile.Performance) is { Kind: ProfileOutcomeKind.Applied } && lifeStore.Value == 1,
+    "lifecycle: captures Whisper before applying Performance");
+var afterCrash = new ProfileGuard(new FakeProfileChannel(2), lifeStore, recoverPersisted: true);
+Check(afterCrash.RestoreOriginal() is { Kind: ProfileOutcomeKind.Restored } && lifeStore.Value is null,
+    "lifecycle: recovery returns to the captured original and clears the record");
+
+// ---- Recovery audit: firmware already back at the original clears the record ----
+var alreadyStore = new FakeProfileStore { Value = 2 };
+var alreadyRecovery = new ProfileGuard(new FakeProfileChannel(2), alreadyStore, recoverPersisted: true);
+Check(alreadyRecovery.RestoreOriginal() is { Kind: ProfileOutcomeKind.Unchanged, Success: true } &&
+      alreadyStore.Value is null,
+    "recovery: no write when firmware already matches the original, record cleared");
+
+// ---- Recovery audit: an unreadable register keeps the record for a later retry ----
+var blockedStore = new FakeProfileStore { Value = 2 };
+var blockedRecovery = new ProfileGuard(new FakeProfileChannel(0) { ReadReturnsNull = true }, blockedStore, recoverPersisted: true);
+Check(blockedRecovery.OriginalWireMode == 2, "recovery keeps persisted original when register is unreadable");
+Check(blockedRecovery.RestoreOriginal().Kind == ProfileOutcomeKind.OriginalUnavailable && blockedStore.Value == 2,
+    "recovery: unreadable register does not drop the persisted original");
+
+// ---- Recovery audit: an out-of-range persisted value is ignored, not trusted ----
+var outOfRangeStore = new FakeProfileStore { Value = 9 };
+var outOfRangeGuard = new ProfileGuard(new FakeProfileChannel(0), outOfRangeStore, recoverPersisted: true);
+Check(outOfRangeGuard.OriginalWireMode is null && outOfRangeGuard.RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured,
+    "recovery: out-of-range persisted mode ignored");
+
+// ---- Recovery audit: codec rejects unknown version ----
+Check(!OriginalProfileCodec.TryDecode("2|1|0", out _), "codec rejects unknown version");
+Check(!OriginalProfileCodec.TryDecode(null, out _) && !OriginalProfileCodec.TryDecode("  ", out _), "codec rejects empty/null");
+
 // ---- Thermal analysis: CSV parse round trip ----
 string sampleCsv = string.Join("\n",
     TelemetryCsv.Header,
