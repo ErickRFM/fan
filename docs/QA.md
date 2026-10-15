@@ -1,4 +1,4 @@
-# QA — Resultados automatizados (v0.4)
+# QA — Resultados automatizados (v0.7)
 
 ## Entorno de ejecución
 - OS: Microsoft Windows 11 Home Single Language, 10.0.26300, x64.
@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **117/117 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
+Resultado: **167/167 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -31,8 +31,11 @@ Resultado: **117/117 PASAN** (la accesibilidad de la UI no aporta pruebas unitar
 - **Biblioteca OEM** (`OemLibraryPolicy`): aceptación por versión mínima, confianza solo en firmantes ASUS/ASUSTeK y descripción legible del estado.
 - **Watchdog bidireccional** (`WatchdogPolicy`): clasificación inactivo/activo/perdido y restauración obligatoria solo cuando se pierde durante control manual.
 - Máquina de estados `FanSession` con **controlador falso**: aplicar, reaplicar por intervalo, evento de reaplicación, confirmación/no confirmación, restauración por parada, propagación de error OEM con restauración, y `Dispose` idempotente.
+- **Perfil original** (`ProfileGuard` con `FakeProfileChannel`/`FakeProfileStore`): captura antes del primer cambio, restaura **ese** perfil (no Estándar), bloqueo cuando el original no es legible, omisión de escritura cuando el perfil pedido es igual al actual, rechazo de escrituras no confirmadas sin persistir, y recuperación del registro tras un cierre inesperado.
+- **Persistencia del perfil original** (`OriginalProfileCodec`): ida y vuelta del registro, tolerancia a datos vacíos/corruptos y no uso de registros obsoletos en sesión interactiva.
+- **Formato CSV** (`TelemetryCsv`): cabecera, escape de comas/comillas, separación de perfil confirmado y RPM observado, y línea por muestra.
 
-Ninguna prueba toca hardware; el backend es un mock (`FakeBackend`) y el reloj es determinista (`ManualTime`).
+Ninguna prueba toca hardware; los backends son mocks (`FakeBackend`, `FakeProfileChannel`, `FakeProfileStore`) y el reloj es determinista (`ManualTime`).
 
 ## Compilación
 ```powershell
@@ -76,3 +79,19 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 - Autenticidad del archivo nativo: `WinVerifyTrust` integrado; **sin prueba con la DLL instalada físicamente** en el runner de CI. No se verifica revocación remota.
 - Se requiere probar en M3500QC que el driver OEM legítimo sea aceptado y que el comportamiento de perfiles no cambie inesperadamente.
 - Esto no comprueba PWM ni ventiladores al 100%; se mantienen bloqueados hasta recuperar HealthyTable y medir RPM.
+
+### Perfil original — VALIDADO en el equipo físico — 2026-10-15 (v0.7, elevado, autorizado)
+- Estado inicial: `VivoBookMode = 131074` (Performance, wire 2).
+- `--set-profile Standard` → `OK: Perfil Standard aplicado y confirmado (wire 2 -> 0); original 2 guardado.` El guard capturó el original **antes** de escribir y lo persistió.
+- `--restore` → `Perfil ASUS: OK: Perfil original restaurado (wire 0 -> 2).` El PWM no se restauró (esperado: `HealthyTable_FanCounts() = -1`).
+- Estado final: `VivoBookMode = 131074` (Performance). **Restauración exacta del original, reversible.**
+- Conclusión: el control de perfiles ya no asume Estándar; devuelve el equipo al perfil en el que estaba.
+
+### Estado del driver ASUS — 2026-10-15 (solo lectura)
+- `AsusSAIO`: `Running` / `OK`, `StartMode = Manual`; dispositivo «ASUS System Control Interface v3» `Error=0`.
+- `AsusOptimization`: `Running` / `Auto` (posible competencia por el control, avisada en la UI).
+- Aun con el driver en `Running/OK`, `HealthyTable_FanCounts() = -1`: el firmware **no expone ventiladores** por esa vía en este modelo/BIOS, de modo que el PWM manual está **bloqueado por diseño**, no por un driver degradado.
+
+### Registro CSV de telemetría — 2026-10-15 (v0.7, solo lectura)
+- `--log-telemetry` escribe `telemetry-*.csv` con `timestamp,RPM CPU,GPU,temperatura,perfil` a ~1 Hz.
+- No activa PWM ni el modo de prueba; puede ejecutarse con el perfil en cualquiera de los modos ASUS.

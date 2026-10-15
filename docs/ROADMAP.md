@@ -17,8 +17,9 @@
 - [x] Confirmar capacidades reales: perfiles = sí; curvas = no; PWM ATKACPI = no.
 - [ ] Confirmar control PWM 70–100% por HealthyTable (bloqueado por driver `AsusSAIO`).
 - [x] Escritura de perfil ATKACPI validada en el M3500QC (Silent/Standard/Performance, verificado por lectura y reversible).
-- [ ] Confirmar recuperación en fallas, suspensión y salida normal.
-- [ ] Comparar RPM con ProArt Creator Hub.
+- [x] Capturar y **restaurar el perfil ASUS original** (sin asumir Estándar) con registro persistente (`ProfileGuard`); validado en el equipo el 2026-10-15.
+- [ ] Confirmar recuperación en fallas, suspensión y salida normal (perfil: validado; PWM: pendiente de HealthyTable).
+- [ ] Comparar RPM con ProArt Creator Hub (procedimiento en `docs/THERMAL-COMPARISON.md`).
 
 ## F4 — Multibackend y telemetría (v0.4)
 - [x] Contratos `IFanTelemetryProvider`/`IFanControlBackend`, capacidades y `FanBackendManager`.
@@ -58,6 +59,16 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [x] Telemetría no declara `Supported` si el driver/ventiladores no responden.
 - [x] Bloqueo de selección de perfil mientras hay una sesión PWM manual.
 - [x] Perfil y restauración validados en el M3500QC real el 2026-10-15: Silent/Standard/Performance aceptados (lectura posterior) y restaurado el modo original (autorizado, reversible). Ver `docs/HARDWARE-TEST.md`.
+
+## v0.7 — Perfil original, registro CSV y diagnóstico (P1–P4)
+- [x] `ProfileGuard` (Core): captura antes del primer cambio y restaura el perfil **original** exacto; bloquea escritura si no es legible.
+- [x] Persistencia y recuperación del original (`original-profile.txt`; `--restore` y watchdog). Validado en el equipo el 2026-10-15.
+- [x] Registro CSV de telemetría (`--log-telemetry`, botón *GRABAR CSV`) y `docs/THERMAL-COMPARISON.md`.
+- [x] Diagnóstico de driver de solo lectura (`--diagnose-driver`) y `docs/OEM-INTERFACES.md`.
+- [x] Investigación de firma legítima para Windows 11 y `docs/WINDOWS-SIGNING.md` (sin desactivar seguridad).
+- [x] Pruebas 167 (antes 117); Release 0 avisos / 0 errores.
+- [ ] Medición sostenida RPM-vs-temperatura por modo comparando con ProArt Creator Hub.
+- [ ] Empaquetado firmado (Azure Artifact Signing / MSIX / Store).
 
 ## Auditoría de software v0.6 — entrega
 - [x] Tests y compilación v0.6 verificados (117 PASS tras la integración del fix de lectura ATKACPI; PR #13/#15).

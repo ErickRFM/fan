@@ -1,3 +1,12 @@
+## v0.7.0 — Captura del perfil original, registro CSV y diagnóstico de driver (P1–P4)
+- **Perfil original (Core):** `ProfileGuard` captura el perfil ASUS activo **antes** del primer cambio y **restaura exactamente ese perfil** (no Estándar por defecto). Bloquea la escritura si no puede leer el original; una escritura rechazada no se persiste. `OriginalProfileCodec` serializa el registro.
+- **Persistencia y recuperación:** el original se guarda en `%LocalAppData%\FanForge\original-profile.txt`; `--restore` y el watchdog lo recuperan tras un cierre inesperado (la sesión interactiva ignora registros obsoletos).
+- **Validación física (M3500QC, 2026-10-15, autorizado, reversible):** `--set-profile Standard` con original Performance → «wire 2 -> 0; original 2 guardado»; `--restore` → «Perfil original restaurado (wire 0 -> 2)»; `VivoBookMode` final `131074`.
+- **Registro CSV (Core/Win/CLI/GUI):** RPM CPU/GPU, temperatura, perfil activo y hora en `%LocalAppData%\FanForge\logs`; `--log-telemetry <seg> [carpeta]` (solo lectura) y botón *GRABAR CSV*. El formato separa cambio de perfil confirmado de aumento de RPM realmente observado (`TelemetryCsv`).
+- **Diagnóstico de driver (solo lectura):** `--diagnose-driver` informa `AsusSAIO`, `AsusOptimization`, `AsIO3/2` y dispositivos ASUS/ATK vía WMI, sin iniciar/detener/reconfigurar nada.
+- **Docs:** `docs/THERMAL-COMPARISON.md`, `docs/WINDOWS-SIGNING.md`, `docs/OEM-INTERFACES.md`.
+- **Pruebas:** 167 (antes 117). Release 0 avisos / 0 errores.
+
 ## v0.6.0 — Auditoría de interoperabilidad y seguridad (integrado en main, pendiente de validación física)
 - Authenticode usa `WinVerifyTrust` para verificar integridad/cadena offline; ya no confunde el texto CN con firma válida. Bloquea carga de DLL OEM no validada.
 - Guardas de modelo en ATKACPI y CLI.

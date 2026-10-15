@@ -127,6 +127,31 @@ Conclusión: en este BIOS los endpoints de **temperatura y curvas no son consult
 falla y deja el handle inservible); las **RPM y el modo VivoBook sí**. La temperatura se obtiene
 por WMI (zona térmica ACPI).
 
+### Perfil original — VALIDADA en el equipo físico — 2026-10-15 (v0.7, elevado, autorizado)
+
+Antes de cambiar de perfil, FanForge captura el perfil ASUS activo y lo **restaura exactamente**
+(no asume Estándar). Prueba con persona presente:
+
+```
+Inicial                      : VivoBookMode = 131074  (Performance, wire 2)
+--set-profile Standard       : OK: Perfil Standard aplicado y confirmado (wire 2 -> 0); original 2 guardado.
+--restore                    : Perfil ASUS: OK: Perfil original restaurado (wire 0 -> 2).
+Final                        : VivoBookMode = 131074  (Performance, wire 2)
+```
+
+El PWM manual no se restauró porque `HealthyTable_FanCounts() = -1` (esperado). El original se guarda
+en `%LocalAppData%\FanForge\original-profile.txt`, de modo que `--restore` y el watchdog pueden devolver
+el equipo a su perfil tras un cierre inesperado. Operación **reversible**, solo ATKACPI.
+
+### Estado actual del driver ASUS — revisar antes de atribuir a «degradado» — 2026-10-15
+
+El 2026-10-15 el driver **`AsusSAIO` figura `Running` / `OK`** (`StartMode = Manual`) y el dispositivo
+«ASUS System Control Interface v3» tiene `Error=0` (`--diagnose-driver`, solo lectura). `AsusOptimization`
+figura `Running` / `Auto`. Aun así, `HealthyTable_FanCounts()` sigue devolviendo `-1`: en este modelo/BIOS
+el firmware **no expone ventiladores** por esa vía, por lo que el PWM manual está **bloqueado por diseño**,
+no necesariamente por un driver degradado. La rasquiña de `-1` descrita abajo sigue siendo válida cuando
+el driver sí está degradado, pero no es la única causa posible.
+
 ## Causa probable (documentada, no modificada)
 
 El driver de kernel **`AsusSAIO`** (el que sirve los datos a `AsusWinIO64.dll`) está en estado **`Stop Pending` y `Degraded`** (`sc query AsusSAIO`, `driverquery /v`). Con el driver degradado, la biblioteca OEM inicializa pero no puede leer el EC, por lo que devuelve `-1`.

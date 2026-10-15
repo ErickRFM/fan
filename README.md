@@ -2,7 +2,7 @@
 
 **Aplicación de escritorio para Windows 11 x64, enfocada inicialmente en el ASUS VivoBook Pro 15 OLED M3500QC.** Implementada en C#/.NET 8 con Windows Forms, acceso a APIs de ASUS System Analysis, lectura de RPM, botones 80%/100%, controles individuales y restauración a modo BIOS.
 
-> **Estado: software v0.6 integrado; hardware PWM en validación.** La compilación y las pruebas automatizadas (simuladas) pasan. En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` porque el driver de kernel `AsusSAIO` está `Degraded`/`Stop Pending` (regresión conocida del driver ASUS). Para no depender de ella, FanForge v0.4 añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md) y [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
+> **Estado: software v0.7 integrado; hardware PWM en validación.** La compilación y las pruebas automatizadas (simuladas) pasan (**167/167**). En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` (`HealthyTable_FanCounts()`), aunque el 2026-10-15 el driver `AsusSAIO` figura `Running/OK` y el dispositivo «ASUS System Control Interface v3» `Error=0`: el firmware no expone ventiladores por esa vía, así que el PWM manual queda **bloqueado por diseño**. Para no depender de ella, FanForge añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado y reversible), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md), [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md) y [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
 
 ## Funcionalidades
 
@@ -15,6 +15,9 @@
 - Botón **VOLVER A BIOS**, comando `--restore`, restauración al cerrar y observador en proceso separado (`--watchdog`).
 - Comando **`--probe`** de solo lectura para leer modelo, BIOS, ventiladores, RPM y CPU sin activar el control manual.
 - **Backend ATKACPI** (v0.4): lee **RPM reales de CPU/GPU** (`0x00110013`/`0x00110014`, unidad = 100 RPM) aunque HealthyTable falle, y ofrece **perfiles ASUS** (Silencioso/Estándar/Rendimiento) con verificación por lectura posterior. No hay perfil independiente «Máximo».
+- **Perfil original (v0.7):** antes del primer cambio se captura el perfil ASUS activo y se **restaura exactamente ese perfil** (no Estándar por defecto); si no puede leerse, la escritura se bloquea. El original se persiste en `%LocalAppData%\FanForge\original-profile.txt` y `--restore`/el watchdog lo recuperan tras un cierre inesperado.
+- **Registro CSV (v0.7):** RPM CPU/GPU, temperatura, perfil activo y hora → `%LocalAppData%\FanForge\logs`; CLI `--log-telemetry` y botón **GRABAR CSV** (solo lectura).
+- **Diagnóstico de driver (v0.7, solo lectura):** CLI `--diagnose-driver` informa `AsusSAIO`, `AsusOptimization`, `AsIO3/2` y dispositivos ASUS/ATK sin modificar nada.
 - **Temperatura de zona ACPI** (v0.4): proveedor suplementario vía WMI `MSAcpi_ThermalZoneTemperature` (aproximada, requiere elevación).
 - **Diagnóstico de capacidades** multibackend: comando `--hardware-diagnose` (solo lectura, vuelca valores RAW) y UI que habilita cada función según lo que el hardware realmente soporta.
 - **Historial y mini-gráficas** de temperatura CPU y RPM en el dashboard (búfer acotado, autoescala).
@@ -86,7 +89,27 @@ los métodos consultados. Para cambiar de perfil (escritura verificada por lectu
 ```
 
 Perfiles válidos: `Whisper`, `Standard`, `Performance`. `Auto` y `Max` no son escrituras válidas de ATKACPI; `Performance` no fija PWM al 100%. Solo debe usarse cuando
-la persona esté presente y ningún otro programa controle los ventiladores.
+la persona esté presente y ningún otro programa controle los ventiladores. Antes del primer cambio se guarda el perfil original y `--restore` lo devuelve.
+
+## Registro CSV de telemetría (solo lectura)
+
+```powershell
+.\dist\FanForge.exe --log-telemetry 120
+```
+
+Muestrea RPM CPU/GPU, temperatura, perfil activo y hora a ~1 Hz durante los segundos indicados
+(1–600) y escribe un CSV en `%LocalAppData%\FanForge\logs` (o en la carpeta indicada como segundo
+argumento). No escribe PWM. Procedimiento de comparación con ProArt en
+[docs/THERMAL-COMPARISON.md](docs/THERMAL-COMPARISON.md).
+
+## Diagnóstico de driver ASUS (solo lectura)
+
+```powershell
+.\dist\FanForge.exe --diagnose-driver
+```
+
+Informa el estado de `AsusSAIO`, `AsusOptimization`, `AsIO3`/`AsIO2` y dispositivos ASUS/ATK vía WMI,
+sin iniciar, detener ni reconfigurar nada. Detalles en [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md).
 
 ## Prueba supervisada
 
@@ -98,7 +121,8 @@ Para intentar recuperar el control automático desde PowerShell elevado, si la i
 .\scripts\restaurar.ps1
 ```
 
-El watchdog es **best effort**, no una medida de seguridad certificada: no puede proteger de cortes de energía, drivers colgados, firmware que ignore órdenes o cierre de todos los procesos.
+`--restore` recupera el **perfil ASUS original** guardado antes del primer cambio (y, cuando
+HealthyTable responde, también el PWM a BIOS). El watchdog es **best effort**, no una medida de seguridad certificada: no puede proteger de cortes de energía, drivers colgados, firmware que ignore órdenes o cierre de todos los procesos.
 
 ## Arquitectura
 
@@ -117,6 +141,12 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 | `FanForge.Win/AsusAcpiNative.cs` | Interop ATKACPI (`DeviceGet`/`DeviceSet`, métodos y constantes) |
 | `FanForge.Win/AsusAcpiTelemetry.cs` | Proveedor de RPM ATKACPI (solo lectura) |
 | `FanForge.Win/AsusAcpiControlBackend.cs` | Cambio de perfil ASUS verificado por lectura posterior |
+| `FanForge.Win/AsusAcpiProfileChannel.cs` | Canal ATKACPI del registro de perfil (lectura/escritura confirmada) |
+| `FanForge.Win/FileProfileStore.cs` | Persistencia del perfil original en archivo local |
+| `FanForge.Core/ProfileGuard.cs` | Captura/restauración del perfil ASUS original y registro |
+| `FanForge.Core/TelemetryCsv.cs` | Formato CSV (perfil confirmado vs. RPM observado) |
+| `FanForge.Win/TelemetryRecorder.cs` | Escritura del CSV de telemetría |
+| `FanForge.Win/DriverDiagnostics.cs` | Estado de servicios/drivers ASUS vía WMI (solo lectura) |
 | `FanForge.Win/AcpiThermalZoneTelemetry.cs` | Temperatura de zona ACPI (WMI, aproximada) |
 | `FanForge.Win/FanBackendManager.cs` | Selección/combinación de proveedores y capacidades |
 | `FanForge.Win/Watchdog.cs` | Recuperación al terminar el proceso padre |
@@ -130,7 +160,7 @@ El watchdog es **best effort**, no una medida de seguridad certificada: no puede
 
 ## Próximas fases
 
-Consulta [ROADMAP](docs/ROADMAP.md): primero validación física en el M3500QC real y por último endurecimiento del control y UX avanzada.
+Consulta [ROADMAP](docs/ROADMAP.md): primero validación física en el M3500QC real y por último endurecimiento del control y UX avanzada. Para distribuir un `.exe` aceptado por Windows 11 (Smart App Control/WDAC) sin desactivar seguridad, ver [docs/WINDOWS-SIGNING.md](docs/WINDOWS-SIGNING.md).
 
 ## Créditos, licencia y avisos
 
