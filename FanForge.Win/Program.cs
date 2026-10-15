@@ -30,6 +30,9 @@ internal static class Program
         if (args.Length >= 2 && args[0] == "--log-telemetry" && int.TryParse(args[1], out int logSeconds))
             return LogTelemetry(logSeconds, args.Length >= 3 ? args[2] : null);
 
+        if (args.Length >= 2 && args[0] == "--analyze")
+            return Analyze(args.Skip(1).ToArray());
+
         using var mutex = new Mutex(true, @"Local\FanForge-M3500QC", out bool acquired);
         if (!acquired)
         {
@@ -223,6 +226,97 @@ internal static class Program
             Report("ERROR: " + ex.GetType().Name + ": " + ex.Message);
             return 2;
         }
+    }
+
+    /// <summary>
+    /// Offline thermal analyzer: reads FanForge CSV logs (and optional ProArt exports), computes
+    /// statistics, and writes an HTML report and a CSV of the computed statistics. Never touches hardware.
+    /// </summary>
+    private static int Analyze(string[] args)
+    {
+        AttachConsole();
+        Report("FanForge --analyze (solo lectura de archivos)");
+        var fanForge = new List<string>();
+        var proart = new List<string>();
+        string? outDir = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--out" when i + 1 < args.Length: outDir = args[++i]; break;
+                case "--proart" when i + 1 < args.Length: proart.Add(args[++i]); break;
+                default: fanForge.Add(args[i]); break;
+            }
+        }
+
+        var samples = new List<TelemetrySample>();
+        int files = 0;
+        foreach (var (paths, source) in new[] { (fanForge, TelemetrySource.FanForge), (proart, TelemetrySource.ProArt) })
+        {
+            foreach (string raw in Expand(paths))
+            {
+                try
+                {
+                    var parsed = TelemetryCsvParser.Parse(File.ReadAllText(raw), source);
+                    samples.AddRange(parsed.Samples);
+                    files++;
+                    Report($"  {Path.GetFileName(raw)} [{source}] -> {parsed.Samples.Count} filas válidas" +
+                           (parsed.Quality.Issues.Count > 0 ? " · " + string.Join(" ", parsed.Quality.Issues) : string.Empty));
+                }
+                catch (IOException ex) { Report("AVISO: no se pudo leer " + raw + ": " + ex.Message); }
+            }
+        }
+
+        if (files == 0 || samples.Count == 0)
+        {
+            Report("No hay datos analizables. Uso: --analyze <csv|dir> [--proart <csv>] [--out <dir>]");
+            return 2;
+        }
+
+        samples.Sort((a, b) => a.Timestamp.CompareTo(b.Timestamp));
+        var result = ThermalAnalyzer.Analyze(samples);
+        string directory = outDir ?? ResolveOutputDirectory(fanForge);
+        Directory.CreateDirectory(directory);
+        string htmlPath = Path.Combine(directory, "thermal-report.html");
+        string csvPath = Path.Combine(directory, "thermal-stats.csv");
+        File.WriteAllText(htmlPath, ThermalReport.Html(result, samples));
+        File.WriteAllText(csvPath, ThermalReport.StatsCsv(result));
+
+        Report("RPM CPU: " + DescribeStat(result.CpuRpm));
+        Report("RPM GPU: " + DescribeStat(result.GpuRpm));
+        Report("Perfiles: " + string.Join(", ", result.Profiles.Select(p =>
+            $"{p.Profile}={(p.CpuRpm.HasData ? p.CpuRpm.Average.ToString("0") + " RPM" : "sin datos")}")));
+        Report("Correlacion temp-RPM: " + (result.TemperatureRpmCorrelation?.ToString("0.000") ?? "no calculable") +
+               " (asociacion, no causalidad)");
+        Report("Informe HTML: " + htmlPath);
+        Report("Estadisticas CSV: " + csvPath);
+        return 0;
+
+        List<string> Expand(List<string> paths)
+        {
+            var list = new List<string>();
+            foreach (string p in paths)
+            {
+                if (Directory.Exists(p)) list.AddRange(Directory.GetFiles(p, "*.csv"));
+                else if (File.Exists(p)) list.Add(p);
+                else Report("AVISO: no existe " + p);
+            }
+            return list;
+        }
+    }
+
+    private static string DescribeStat(Stat s) => s.HasData
+        ? $"min={s.Min:0} max={s.Max:0} media={s.Average:0.0} p90={s.P90:0} p95={s.P95:0}"
+        : "sin datos";
+
+    private static string ResolveOutputDirectory(List<string> fanForgePaths)
+    {
+        foreach (string p in fanForgePaths)
+        {
+            string? dir = Directory.Exists(p) ? p : Path.GetDirectoryName(p);
+            if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)) return dir;
+        }
+        return Environment.CurrentDirectory;
     }
 
     private static int RestoreNow()

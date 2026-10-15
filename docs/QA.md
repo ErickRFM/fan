@@ -1,4 +1,4 @@
-# QA — Resultados automatizados (v0.7)
+# QA — Resultados automatizados (v0.8)
 
 ## Entorno de ejecución
 - OS: Microsoft Windows 11 Home Single Language, 10.0.26300, x64.
@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **167/167 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
+Resultado: **223/223 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -34,6 +34,9 @@ Resultado: **167/167 PASAN** (la accesibilidad de la UI no aporta pruebas unitar
 - **Perfil original** (`ProfileGuard` con `FakeProfileChannel`/`FakeProfileStore`): captura antes del primer cambio, restaura **ese** perfil (no Estándar), bloqueo cuando el original no es legible, omisión de escritura cuando el perfil pedido es igual al actual, rechazo de escrituras no confirmadas sin persistir, y recuperación del registro tras un cierre inesperado.
 - **Persistencia del perfil original** (`OriginalProfileCodec`): ida y vuelta del registro, tolerancia a datos vacíos/corruptos y no uso de registros obsoletos en sesión interactiva.
 - **Formato CSV** (`TelemetryCsv`): cabecera, escape de comas/comillas, separación de perfil confirmado y RPM observado, y línea por muestra.
+- **Analizador térmico** (`ThermalAnalyzer`/`TelemetryCsvParser`/`ThermalReport`): parseo de CSV (ida y vuelta, detección de huecos temporales y filas inválidas, import de ProArt con alias de cabecera), estadísticas (min/max/media/p90/p95), correlación temperatura–RPM y desglose por perfil, y generación del informe HTML/CSV.
+- **Manifiesto MSIX** (`MsixManifest`): acepta un manifiesto válido y rechaza XML mal formado, vacío, arquitectura no x64, versión no de cuatro partes, entrada no *full trust* y ausencia de identidad; también valida el manifiesto real del repositorio.
+- **Recuperación ampliada**: ciclo completo aplicar → crash → recuperar, registro `Unchanged` cuando el firmware ya coincide (limpiando el registro), retención del registro si el registro es ilegible, rechazo de valores fuera de rango y de versiones desconocidas del códec.
 
 Ninguna prueba toca hardware; los backends son mocks (`FakeBackend`, `FakeProfileChannel`, `FakeProfileStore`) y el reloj es determinista (`ManualTime`).
 
@@ -95,3 +98,10 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 ### Registro CSV de telemetría — 2026-10-15 (v0.7, solo lectura)
 - `--log-telemetry` escribe `telemetry-*.csv` con `timestamp,RPM CPU,GPU,temperatura,perfil` a ~1 Hz.
 - No activa PWM ni el modo de prueba; puede ejecutarse con el perfil en cualquiera de los modos ASUS.
+
+## v0.8 — Analizador, MSIX, recuperación e investigación PWM
+- **Analizador térmico** (`--analyze`): probado de extremo a extremo con un CSV de ejemplo (30 filas) → `thermal-report.html` y `thermal-stats.csv` generados; estadísticas y correlación correctas. Solo lectura de archivos, sin hardware.
+- **MSIX**: `scripts/verificar-msix.ps1` en local y en CI (`windows-latest`) verifica identidad x64, versión de 4 partes, *entry point* full trust y presencia de los cuatro logos. El empaquetado real (`MakeAppx`) requiere el Windows SDK; no se firma ningún paquete en CI (un MSIX sin firmar no se instala).
+- **Recuperación**: ampliada con escenarios de ciclo completo; ver `docs/RECOVERY.md`.
+- **PWM**: documentado el bloqueo por firmware (`docs/PWM-RESEARCH.md`); sin cambios de drivers/EC.
+- Pruebas: **223/223**; Release 0 avisos / 0 errores.

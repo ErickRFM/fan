@@ -70,6 +70,15 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [ ] Medición sostenida RPM-vs-temperatura por modo comparando con ProArt Creator Hub.
 - [ ] Empaquetado firmado (Azure Artifact Signing / MSIX / Store).
 
+## v0.8 — Analizador térmico, MSIX, recuperación e investigación PWM (P6–P10)
+- [x] Analizador térmico `--analyze` (solo lectura de archivos): parseo tolerante, estadísticas, correlación (no causal), informe HTML/SVG y CSV; import de ProArt.
+- [x] Base de empaquetado MSIX: manifiesto, logos por script, verificación estructural en CI y empaquetado reproducible (`docs/MSIX.md`). Firma = paso manual autorizado.
+- [x] Auditoría de recuperación y tests de ciclo completo (aplicar → crash → recuperar; `docs/RECOVERY.md`).
+- [x] Investigación PWM y conclusión documentada (`docs/PWM-RESEARCH.md`): bloqueo por firmware en este modelo/BIOS.
+- [x] Pruebas 223 (antes 167); Release 0 avisos / 0 errores.
+- [ ] Firmar el MSIX con un certificado de confianza (paso autorizado, fuera de esta sesión).
+- [ ] Medición sostenida RPM-vs-temperatura por modo comparando con ProArt Creator Hub (presencial).
+
 ## Auditoría de software v0.6 — entrega
 - [x] Tests y compilación v0.6 verificados (117 PASS tras la integración del fix de lectura ATKACPI; PR #13/#15).
 - [x] Guardas ATKACPI y firma nativa en ruta WinIO.

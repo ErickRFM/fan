@@ -166,3 +166,9 @@ Esto coincide con la regresión conocida del proyecto de referencia MIT [Karmel0
 
 FanForge **no** escribe registros EC, no revierte drivers, no modifica firmware ni desactiva protecciones térmicas.
 
+## v0.8 — Analizador y empaquetado (no requiere hardware)
+
+- `--analyze` es solo lectura de archivos: no ejecuta pruebas contra el equipo.
+- La verificación MSIX (`scripts/verificar-msix.ps1`) no toca hardware.
+- La firma del MSIX es un paso manual autorizado y no se realiza en esta sesión.
+

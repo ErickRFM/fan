@@ -358,6 +358,193 @@ var projected = TelemetryHistory.FromSnapshot(new TelemetrySnapshot(
     new TemperatureReading(50, null), DateTimeOffset.UnixEpoch));
 Check(projected.CpuRpm == 4400 && projected.GpuRpm is null && projected.CpuCelsius == 50, "FromSnapshot projects");
 
+// ---- Recovery codec: corrupted or hostile records are rejected, whitespace tolerated ----
+Check(OriginalProfileCodec.TryDecode("  1|2|100  ", out int padded) && padded == 2, "codec tolerates surrounding whitespace");
+Check(!OriginalProfileCodec.TryDecode("1|2|-5", out _), "codec rejects negative timestamp");
+Check(!OriginalProfileCodec.TryDecode("1|2|notanumber", out _), "codec rejects corrupt timestamp");
+Check(!OriginalProfileCodec.TryDecode("1|2|0|3", out _), "codec rejects extra fields");
+Check(!OriginalProfileCodec.TryDecode("1|x|0", out _), "codec rejects non-numeric mode");
+Check(!OriginalProfileCodec.TryDecode("garbage", out _), "codec rejects garbage");
+
+// ---- Recovery: a corrupted persisted record must not block a clean capture ----
+var corruptStore = new FakeProfileStore { Value = 2 };
+var freshChannel = new FakeProfileChannel(1);
+var freshGuard = new ProfileGuard(freshChannel, corruptStore);
+Check(freshGuard.Apply(FanProfile.Performance).Kind == ProfileOutcomeKind.Applied, "apply captures even with a non-null store");
+Check(freshChannel.Wire == 2 && freshGuard.OriginalWireMode == 1, "interactive guard captures live original, ignoring stale store");
+
+// ---- Recovery: two recovery runs with no record are harmless no-ops ----
+Check(new ProfileGuard(new FakeProfileChannel(0), new FakeProfileStore(), recoverPersisted: true)
+        .RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured,
+    "second recovery with empty store is a no-op");
+
+// ---- Recovery audit: full crash lifecycle (apply -> crash -> recover) ----
+var lifeStore = new FakeProfileStore();
+var lifeSession = new ProfileGuard(new FakeProfileChannel(1), lifeStore);
+Check(lifeSession.Apply(FanProfile.Performance) is { Kind: ProfileOutcomeKind.Applied } && lifeStore.Value == 1,
+    "lifecycle: captures Whisper before applying Performance");
+var afterCrash = new ProfileGuard(new FakeProfileChannel(2), lifeStore, recoverPersisted: true);
+Check(afterCrash.RestoreOriginal() is { Kind: ProfileOutcomeKind.Restored } && lifeStore.Value is null,
+    "lifecycle: recovery returns to the captured original and clears the record");
+
+// ---- Recovery audit: firmware already back at the original clears the record ----
+var alreadyStore = new FakeProfileStore { Value = 2 };
+var alreadyRecovery = new ProfileGuard(new FakeProfileChannel(2), alreadyStore, recoverPersisted: true);
+Check(alreadyRecovery.RestoreOriginal() is { Kind: ProfileOutcomeKind.Unchanged, Success: true } &&
+      alreadyStore.Value is null,
+    "recovery: no write when firmware already matches the original, record cleared");
+
+// ---- Recovery audit: an unreadable register keeps the record for a later retry ----
+var blockedStore = new FakeProfileStore { Value = 2 };
+var blockedRecovery = new ProfileGuard(new FakeProfileChannel(0) { ReadReturnsNull = true }, blockedStore, recoverPersisted: true);
+Check(blockedRecovery.OriginalWireMode == 2, "recovery keeps persisted original when register is unreadable");
+Check(blockedRecovery.RestoreOriginal().Kind == ProfileOutcomeKind.OriginalUnavailable && blockedStore.Value == 2,
+    "recovery: unreadable register does not drop the persisted original");
+
+// ---- Recovery audit: an out-of-range persisted value is ignored, not trusted ----
+var outOfRangeStore = new FakeProfileStore { Value = 9 };
+var outOfRangeGuard = new ProfileGuard(new FakeProfileChannel(0), outOfRangeStore, recoverPersisted: true);
+Check(outOfRangeGuard.OriginalWireMode is null && outOfRangeGuard.RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured,
+    "recovery: out-of-range persisted mode ignored");
+
+// ---- Recovery audit: codec rejects unknown version ----
+Check(!OriginalProfileCodec.TryDecode("2|1|0", out _), "codec rejects unknown version");
+Check(!OriginalProfileCodec.TryDecode(null, out _) && !OriginalProfileCodec.TryDecode("  ", out _), "codec rejects empty/null");
+
+// ---- Thermal analysis: CSV parse round trip ----
+string sampleCsv = string.Join("\n",
+    TelemetryCsv.Header,
+    TelemetryCsv.Row(new HistoryPoint(DateTimeOffset.UnixEpoch, 45, null, 4400, 3800), "Performance", true),
+    TelemetryCsv.Row(new HistoryPoint(DateTimeOffset.UnixEpoch.AddSeconds(1), 46, null, 4450, 3810), "Performance", true));
+var parsedCsv = TelemetryCsvParser.Parse(sampleCsv, TelemetrySource.FanForge);
+Check(parsedCsv.Samples.Count == 2 && parsedCsv.Samples[0].CpuRpm == 4400 && parsedCsv.Samples[0].GpuRpm == 3800,
+    "parse round trip reads rpm");
+Check(parsedCsv.Samples[0].CpuCelsius == 45 && parsedCsv.Quality.TotalRows == 2 && parsedCsv.Quality.ValidRows == 2,
+    "parse keeps readable values and quality counters");
+Check(parsedCsv.Samples[0].Profile == "Performance" && parsedCsv.Samples[0].Source == TelemetrySource.FanForge,
+    "parse keeps profile and source");
+
+// ---- Thermal analysis: invalid values, missing timestamps and gap detection ----
+string noisyCsv = string.Join("\n", TelemetryCsv.Header,
+    "2020-01-01T00:00:00Z,4400,3800,45,,",
+    "2020-01-01T00:00:01Z,-50,abc,999,,x,",
+    "not-a-date,4400,3800,45,,");
+var parsedNoisy = TelemetryCsvParser.Parse(noisyCsv, TelemetrySource.FanForge);
+Check(parsedNoisy.Quality.InvalidValues == 3, "invalid values counted");
+Check(parsedNoisy.Quality.MissingTimestamps == 1, "missing timestamp counted");
+Check(parsedNoisy.Samples.Count == 2, "unparseable rows dropped");
+Check(parsedNoisy.Samples[1].CpuRpm is null && parsedNoisy.Samples[1].GpuRpm is null && parsedNoisy.Samples[1].CpuCelsius is null,
+    "invalid values become empty");
+
+string gapCsv = string.Join("\n", TelemetryCsv.Header,
+    "2020-01-01T00:00:00Z,1000,,40,,",
+    "2020-01-01T00:00:01Z,1100,,41,,",
+    "2020-01-01T01:00:00Z,1200,,42,,");
+var parsedGap = TelemetryCsvParser.Parse(gapCsv, TelemetrySource.FanForge);
+Check(parsedGap.Quality.Gaps.Count == 1 && parsedGap.Quality.Gaps[0].Length > TimeSpan.FromMinutes(59),
+    "gap detected between distant samples");
+
+// ---- Thermal analysis: ProArt import via header aliases ----
+string proartCsv = string.Join("\n", "time,temp,rpm",
+    "2020-01-01T00:00:00Z,55,3000",
+    "2020-01-01T00:00:01Z,56,3050");
+var parsedPro = TelemetryCsvParser.Parse(proartCsv, TelemetrySource.ProArt);
+Check(parsedPro.Samples.Count == 2 && parsedPro.Samples[0].CpuRpm == 3000 && parsedPro.Samples[0].CpuCelsius == 55,
+    "proart header alias maps rpm/temp");
+Check(parsedPro.Samples[0].Source == TelemetrySource.ProArt, "proart source tagged");
+
+// ---- Thermal analysis: quoted fields survive the tokenizer ----
+string quotedCsv = TelemetryCsv.Header + "\n" +
+    TelemetryCsv.Row(new HistoryPoint(DateTimeOffset.UnixEpoch, 40, null, 1000, null), "a,b", null, "x,y");
+var parsedQuoted = TelemetryCsvParser.Parse(quotedCsv, TelemetrySource.FanForge);
+Check(parsedQuoted.Samples.Count == 1 && parsedQuoted.Samples[0].Profile == "a,b" && parsedQuoted.Samples[0].Note == "x,y",
+    "quoted commas preserved");
+string newlineCsv = TelemetryCsv.Header + "\n" +
+    TelemetryCsv.Row(new HistoryPoint(DateTimeOffset.UnixEpoch, 40, null, 1000, null), "Standard", true, "line1\nline2");
+var parsedNewline = TelemetryCsvParser.Parse(newlineCsv, TelemetrySource.FanForge);
+Check(parsedNewline.Samples.Count == 1 && parsedNewline.Samples[0].Note == "line1\nline2", "quoted newline preserved in one row");
+
+// ---- Thermal analysis: statistics ----
+var stat5 = Stat.From(new[] { 10, 20, 30, 40, 50 });
+Check(stat5.Count == 5 && stat5.Min == 10 && stat5.Max == 50, "stat extremes");
+Check(stat5.Average == 30 && stat5.Median == 30, "stat average and median");
+Check(stat5.P90 == 50 && stat5.P95 == 50, "stat p90 and p95");
+var stat4 = Stat.From(new[] { 1, 2, 3, 4 });
+Check(stat4.Median == 2 && stat4.P90 == 4 && stat4.P95 == 4, "nearest-rank percentiles on even count");
+Check(!Stat.From(Array.Empty<int>()).HasData && Stat.From(Array.Empty<int>()) == Stat.Empty, "empty stat");
+Check(Stat.Percentile(new[] { 1, 2, 3, 4 }, 0) == 1 && Stat.Percentile(new[] { 1, 2, 3, 4 }, 100) == 4, "percentile bounds");
+
+// ---- Thermal analysis: profile comparison, rpm-vs-temperature and correlation ----
+var analysisSamples = new[]
+{
+    new TelemetrySample(DateTimeOffset.UnixEpoch, 1000, null, 40, null, "Whisper", true, null, TelemetrySource.FanForge),
+    new TelemetrySample(DateTimeOffset.UnixEpoch.AddSeconds(1), 1500, null, 50, null, "Whisper", true, null, TelemetrySource.FanForge),
+    new TelemetrySample(DateTimeOffset.UnixEpoch.AddSeconds(2), 2000, null, 60, null, "Standard", true, null, TelemetrySource.FanForge),
+    new TelemetrySample(DateTimeOffset.UnixEpoch.AddSeconds(3), 2500, null, 70, null, "Standard", true, null, TelemetrySource.FanForge),
+    new TelemetrySample(DateTimeOffset.UnixEpoch.AddSeconds(4), 3000, null, 80, null, "Performance", true, null, TelemetrySource.FanForge)
+};
+var analysis = ThermalAnalyzer.Analyze(analysisSamples);
+Check(analysis.Profiles.Count == 3 && analysis.Profiles[0].Profile == "Whisper" &&
+      analysis.Profiles[1].Profile == "Standard" && analysis.Profiles[2].Profile == "Performance",
+    "profile summaries in canonical order");
+Check(analysis.Profiles[0].CpuRpm.Average == 1250 && analysis.Profiles[1].CpuRpm.Average == 2250 &&
+      analysis.Profiles[2].CpuRpm.Average == 3000, "per-profile rpm averages");
+Check(analysis.AverageCpuRpmByTemperature.Count == 5 && analysis.AverageCpuRpmByTemperature[60] == 2000,
+    "rpm bucketed by cpu temperature");
+Check(analysis.TemperatureRpmCorrelation == 1.0, "perfect positive correlation detected");
+Check(analysis.CorrelationNote.Contains("causalidad"), "correlation caveat present");
+
+var negativeCorrelation = ThermalAnalyzer.Pearson(new[]
+{
+    new TelemetrySample(DateTimeOffset.UnixEpoch, 1000, null, 30, null, "x", null, null, TelemetrySource.FanForge),
+    new TelemetrySample(DateTimeOffset.UnixEpoch.AddSeconds(1), 2000, null, 20, null, "x", null, null, TelemetrySource.FanForge)
+});
+Check(negativeCorrelation == -1.0, "perfect negative correlation");
+Check(ThermalAnalyzer.Pearson(new[]
+    { new TelemetrySample(DateTimeOffset.UnixEpoch, 1000, null, 50, null, "x", null, null, TelemetrySource.FanForge) }) is null,
+    "correlation undefined for a single point");
+
+// ---- Thermal analysis: HTML and CSV reports ----
+string html = ThermalReport.Html(analysis, analysisSamples);
+Check(html.Contains("<svg") && html.Contains("RPM por tiempo"), "html report embeds rpm chart");
+Check(html.Contains("Whisper") && html.Contains("Performance"), "html report lists profiles");
+Check(html.Contains("causalidad") && html.Contains("Calidad de datos"), "html report keeps caveat and quality section");
+string statsCsv = ThermalReport.StatsCsv(analysis);
+Check(statsCsv.Contains("scope,metric") && statsCsv.Contains("overall,cpu_rpm"), "csv stats header and overall row");
+Check(statsCsv.Contains("Whisper,cpu_rpm") && statsCsv.Contains("correlation,temperature_rpm"), "csv stats lists profiles and correlation");
+Check(ThermalReport.Chart("t", "RPM", new[] { new ChartSeries("CPU", "#fff", new double?[] { 1, null, 3 }) }).Contains("<path"),
+    "chart renders a path with a gap");
+
+// ---- MSIX: manifest structure policy ----
+const string goodMsix = """
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+  <Identity Name="FanForge.M3500QC" Publisher="CN=FanForge Development" Version="0.8.0.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>FanForge</DisplayName>
+    <PublisherDisplayName>FanForge</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies><TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" /></Dependencies>
+  <Applications><Application Id="FanForge" Executable="FanForge.exe" EntryPoint="Windows.FullTrustApplication" /></Applications>
+</Package>
+""";
+Check(MsixManifest.Validate(goodMsix).Count == 0, "valid msix manifest accepted");
+Check(MsixManifest.Validate("not xml").Count > 0, "malformed manifest rejected");
+Check(MsixManifest.Validate("").Count > 0, "empty manifest rejected");
+Check(MsixManifest.Validate(goodMsix.Replace("x64", "arm64")).Any(i => i.Contains("x64")), "non-x64 architecture rejected");
+Check(MsixManifest.Validate(goodMsix.Replace("Version=\"0.8.0.0\"", "Version=\"0.8\"")).Any(i => i.Contains("Version")), "short version rejected");
+Check(MsixManifest.Validate(goodMsix.Replace("Windows.FullTrustApplication", "Windows.ApplicationModel.Core")).Any(i => i.Contains("EntryPoint")), "non full-trust entrypoint rejected");
+Check(MsixManifest.Validate(goodMsix.Replace("<Identity", "<IdentityX")).Count > 0, "missing identity rejected");
+
+string? repoManifest = null;
+for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir != null && repoManifest == null; dir = dir.Parent)
+{
+    string candidate = Path.Combine(dir.FullName, "packaging", "msix", "AppxManifest.xml");
+    if (File.Exists(candidate)) repoManifest = candidate;
+}
+if (repoManifest != null)
+    Check(MsixManifest.Validate(File.ReadAllText(repoManifest)).Count == 0, "repository appxmanifest validates");
+
 Console.WriteLine("Passed: " + passed);
 
 // ---- Test doubles (simulated controller; never touches real hardware) ----

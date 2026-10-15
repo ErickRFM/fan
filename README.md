@@ -2,7 +2,7 @@
 
 **Aplicación de escritorio para Windows 11 x64, enfocada inicialmente en el ASUS VivoBook Pro 15 OLED M3500QC.** Implementada en C#/.NET 8 con Windows Forms, acceso a APIs de ASUS System Analysis, lectura de RPM, botones 80%/100%, controles individuales y restauración a modo BIOS.
 
-> **Estado: software v0.7 integrado; hardware PWM en validación.** La compilación y las pruebas automatizadas (simuladas) pasan (**167/167**). En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` (`HealthyTable_FanCounts()`), aunque el 2026-10-15 el driver `AsusSAIO` figura `Running/OK` y el dispositivo «ASUS System Control Interface v3» `Error=0`: el firmware no expone ventiladores por esa vía, así que el PWM manual queda **bloqueado por diseño**. Para no depender de ella, FanForge añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado y reversible), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md), [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md) y [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
+> **Estado: software v0.8 integrado; hardware PWM en validación.** La compilación y las pruebas automatizadas (simuladas) pasan (**223/223**). En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` (`HealthyTable_FanCounts()`), aunque el 2026-10-15 el driver `AsusSAIO` figura `Running/OK` y el dispositivo «ASUS System Control Interface v3» `Error=0`: el firmware no expone ventiladores por esa vía, así que el PWM manual queda **bloqueado por diseño**. Para no depender de ella, FanForge añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado y reversible), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md), [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md) y [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
 
 ## Funcionalidades
 
@@ -18,6 +18,8 @@
 - **Perfil original (v0.7):** antes del primer cambio se captura el perfil ASUS activo y se **restaura exactamente ese perfil** (no Estándar por defecto); si no puede leerse, la escritura se bloquea. El original se persiste en `%LocalAppData%\FanForge\original-profile.txt` y `--restore`/el watchdog lo recuperan tras un cierre inesperado.
 - **Registro CSV (v0.7):** RPM CPU/GPU, temperatura, perfil activo y hora → `%LocalAppData%\FanForge\logs`; CLI `--log-telemetry` y botón **GRABAR CSV** (solo lectura).
 - **Diagnóstico de driver (v0.7, solo lectura):** CLI `--diagnose-driver` informa `AsusSAIO`, `AsusOptimization`, `AsIO3/2` y dispositivos ASUS/ATK sin modificar nada.
+- **Analizador térmico (v0.8):** comando `--analyze` (solo lectura de archivos) que parsea los CSV de FanForge y las exportaciones de ProArt, calcula estadísticas (min/max/media/p90/p95), correlación temperatura–RPM (con aviso de no causalidad) y por perfil, y genera `thermal-report.html` (gráficas SVG) y `thermal-stats.csv`. Sin acceso a hardware.
+- **Base MSIX (v0.8):** manifiesto, logos generados por script, verificación estructural y empaquetado reproducible (`scripts/empaquetar-msix.ps1`). Un MSIX sin firmar **no** se instala; la firma es un paso manual autorizado. Ver [docs/MSIX.md](docs/MSIX.md).
 - **Temperatura de zona ACPI** (v0.4): proveedor suplementario vía WMI `MSAcpi_ThermalZoneTemperature` (aproximada, requiere elevación).
 - **Diagnóstico de capacidades** multibackend: comando `--hardware-diagnose` (solo lectura, vuelca valores RAW) y UI que habilita cada función según lo que el hardware realmente soporta.
 - **Historial y mini-gráficas** de temperatura CPU y RPM en el dashboard (búfer acotado, autoescala).
@@ -102,6 +104,17 @@ Muestrea RPM CPU/GPU, temperatura, perfil activo y hora a ~1 Hz durante los segu
 argumento). No escribe PWM. Procedimiento de comparación con ProArt en
 [docs/THERMAL-COMPARISON.md](docs/THERMAL-COMPARISON.md).
 
+## Analizador térmico de CSV (solo lectura de archivos)
+
+```powershell
+.\dist\FanForge.exe --analyze "%LocalAppData%\FanForge\logs" --out .
+```
+
+Parsea los CSV indicados (un archivo o una carpeta; `--proart <csv>` para exportaciones de ProArt
+Creator Hub) y escribe `thermal-report.html` (gráficas SVG y estadísticas por perfil) y
+`thermal-stats.csv`. **No toca hardware.** El informe indica la correlación temperatura–RPM como
+asociación, no causalidad.
+
 ## Diagnóstico de driver ASUS (solo lectura)
 
 ```powershell
@@ -145,6 +158,10 @@ HealthyTable responde, también el PWM a BIOS). El watchdog es **best effort**, 
 | `FanForge.Win/FileProfileStore.cs` | Persistencia del perfil original en archivo local |
 | `FanForge.Core/ProfileGuard.cs` | Captura/restauración del perfil ASUS original y registro |
 | `FanForge.Core/TelemetryCsv.cs` | Formato CSV (perfil confirmado vs. RPM observado) |
+| `FanForge.Core/ThermalAnalysis.cs` | Tipos del analizador (`TelemetrySample`, `Stat`, `DataQuality`) |
+| `FanForge.Core/ThermalAnalyzer.cs` | Parseo de CSV y estadísticas/correlación por perfil |
+| `FanForge.Core/ThermalReport.cs` | Informe HTML (SVG) y CSV de estadísticas |
+| `FanForge.Core/MsixPackaging.cs` | Validación del manifiesto MSIX (política) |
 | `FanForge.Win/TelemetryRecorder.cs` | Escritura del CSV de telemetría |
 | `FanForge.Win/DriverDiagnostics.cs` | Estado de servicios/drivers ASUS vía WMI (solo lectura) |
 | `FanForge.Win/AcpiThermalZoneTelemetry.cs` | Temperatura de zona ACPI (WMI, aproximada) |
@@ -161,6 +178,16 @@ HealthyTable responde, también el PWM a BIOS). El watchdog es **best effort**, 
 ## Próximas fases
 
 Consulta [ROADMAP](docs/ROADMAP.md): primero validación física en el M3500QC real y por último endurecimiento del control y UX avanzada. Para distribuir un `.exe` aceptado por Windows 11 (Smart App Control/WDAC) sin desactivar seguridad, ver [docs/WINDOWS-SIGNING.md](docs/WINDOWS-SIGNING.md).
+
+## Documentación adicional
+
+- [docs/ROADMAP.md](docs/ROADMAP.md) — hoja de ruta.
+- [docs/MSIX.md](docs/MSIX.md) — empaquetado MSIX y firma.
+- [docs/RECOVERY.md](docs/RECOVERY.md) — recuperación y auditoría de seguridad.
+- [docs/PWM-RESEARCH.md](docs/PWM-RESEARCH.md) — por qué el PWM manual está bloqueado en este modelo.
+- [docs/WINDOWS-SIGNING.md](docs/WINDOWS-SIGNING.md) — firma para SAC/WDAC.
+- [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md) — interfaces ASUS investigadas.
+- [docs/THERMAL-COMPARISON.md](docs/THERMAL-COMPARISON.md) — comparación térmica con ProArt.
 
 ## Créditos, licencia y avisos
 
