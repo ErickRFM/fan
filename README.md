@@ -32,6 +32,22 @@
 - Pruebas de reglas de negocio y de la máquina de estados con **controlador simulado (mock)**, pipeline Windows y scripts de diagnóstico.
 - Evita valores PWM bajos en el prototipo para no reducir de forma peligrosa la refrigeración.
 
+## Distribución firmada para Smart App Control (opcional)
+
+La CI normal genera software de pruebas y no lo presenta como firmado. Para distribuir
+un EXE o instalador MSIX aceptado por Smart App Control, el proyecto incluye
+`.github/workflows/signed-release.yml`, un flujo **manual**, restringido a
+`main`, que usa Microsoft Artifact Signing con autenticación OIDC (sin PFX ni
+claves privadas en GitHub).
+
+**No hay firma automática todavía:** necesitas un certificado público autorizado,
+una cuenta Artifact Signing compatible y configurar el environment
+`fanforge-signing` con credenciales federadas. Después, el workflow firma el
+EXE y MSIX, verifica ambas firmas y entrega artefactos en GitHub Actions.
+No se permite subir paquetes sin firmar bajo un nombre de distribución confiable.
+Pasos completos: [Firma en Windows](docs/WINDOWS-SIGNING.md) y
+[Empaquetado MSIX](docs/MSIX.md).
+
 ## Instalar dependencias y compilar
 
 1. Instala los controladores y servicios oficiales de ASUS mediante MyASUS, y ejecuta Windows 11 x64.
