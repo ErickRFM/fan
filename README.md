@@ -2,7 +2,7 @@
 
 **Aplicación de escritorio para Windows 11 x64, enfocada inicialmente en el ASUS VivoBook Pro 15 OLED M3500QC.** Implementada en C#/.NET 8 con Windows Forms, acceso a APIs de ASUS System Analysis, lectura de RPM, botones 80%/100%, controles individuales y restauración a modo BIOS.
 
-> **Estado: software v0.8 integrado; hardware PWM en validación.** La compilación y las pruebas automatizadas (simuladas) pasan (**223/223**). En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` (`HealthyTable_FanCounts()`), aunque el 2026-10-15 el driver `AsusSAIO` figura `Running/OK` y el dispositivo «ASUS System Control Interface v3» `Error=0`: el firmware no expone ventiladores por esa vía, así que el PWM manual queda **bloqueado por diseño**. Para no depender de ella, FanForge añade un **backend ATKACPI** que **lee RPM reales de CPU y GPU** y permite **cambiar el perfil ASUS** (verificado y reversible), y un backend de **zona térmica ACPI** para temperatura aproximada. El control PWM manual se habilita únicamente si HealthyTable responde. Ver [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md), [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md) y [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
+> **Estado: software v0.9 integrado; hardware PWM en validación.** La compilación y las pruebas automatizadas (simuladas) pasan (**252/252**). En el M3500QC físico, la API HealthyTable/`AsusWinIO64.dll` sigue devolviendo `-1` (`HealthyTable_FanCounts()`) y los endpoints ATKACPI de escritura fallan: el firmware **no expone PWM fijo ni curvas**, así que el control manual queda **bloqueado por diseño** (`Unsupported`). v0.9 añade un **motor FanSpeed multibackend** con estados de verificación (nunca reporta como completado lo no confirmado) y telemetría **WMI** defensiva, además de los backends ATKACPI (RPM reales de CPU/GPU y perfiles ASUS verificados) y de zona térmica ACPI. El control PWM manual solo se habilita si existe un canal **verificado físicamente**. Ver [docs/FANSPEED-RESEARCH.md](docs/FANSPEED-RESEARCH.md), [docs/ASUS-BACKENDS.md](docs/ASUS-BACKENDS.md), [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md) y [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md). Si aparece `100%` significa **PWM solicitado**, no ventilador a 100% comprobado. No se deben desactivar protecciones térmicas ni instalar drivers no oficiales.
 
 ## Funcionalidades
 
@@ -18,6 +18,10 @@
 - **Perfil original (v0.7):** antes del primer cambio se captura el perfil ASUS activo y se **restaura exactamente ese perfil** (no Estándar por defecto); si no puede leerse, la escritura se bloquea. El original se persiste en `%LocalAppData%\FanForge\original-profile.txt` y `--restore`/el watchdog lo recuperan tras un cierre inesperado.
 - **Registro CSV (v0.7):** RPM CPU/GPU, temperatura, perfil activo y hora → `%LocalAppData%\FanForge\logs`; CLI `--log-telemetry` y botón **GRABAR CSV** (solo lectura).
 - **Diagnóstico de driver (v0.7, solo lectura):** CLI `--diagnose-driver` informa `AsusSAIO`, `AsusOptimization`, `AsIO3/2` y dispositivos ASUS/ATK sin modificar nada.
+- **Motor FanSpeed (v0.9):** `FanSpeedEngine` (Core) orquesta varios backends con un único canal de escritura serializado y separa *detección / verificación / solicitud / respuesta / RPM medidas*. Una operación **nunca se presenta como completada** si no está confirmada físicamente (`Accepted` ≠ `Confirmed`). Incluye guarda de concurrencia CPU/GPU, restauración preventiva ante lecturas incoherentes y auditoría.
+- **Códec y telemetría WMI (v0.9):** `AsusWmiCodec` decodifica el valor con bit de validez `0x10000` (RPM = valor×100) y rechaza centinelas; el backend WMI (`root\wmi:AsusAtkWmi_WMNB`) es defensivo y de solo lectura.
+- **Centro de control FanSpeed (v0.9, GUI):** pestaña **FanSpeed** con estado del motor, capacidades por backend, objetivos CPU/GPU (70–100 %), botones *Aplicar / Confirmar RPM / Volver a automático* y auditoría. Los controles de escritura quedan **deshabilitados** salvo que exista un canal PWM `Verified`.
+- **Diagnóstico FanSpeed (v0.9, CLI solo lectura):** `--fan-backends`, `--fan-capabilities`, `--fan-read` y `--fan-recovery-status`.
 - **Analizador térmico (v0.8):** comando `--analyze` (solo lectura de archivos) que parsea los CSV de FanForge y las exportaciones de ProArt, calcula estadísticas (min/max/media/p90/p95), correlación temperatura–RPM (con aviso de no causalidad) y por perfil, y genera `thermal-report.html` (gráficas SVG) y `thermal-stats.csv`. Sin acceso a hardware.
 - **Base MSIX (v0.8):** manifiesto, logos generados por script, verificación estructural y empaquetado reproducible (`scripts/empaquetar-msix.ps1`). Un MSIX sin firmar **no** se instala; la firma es un paso manual autorizado. Ver [docs/MSIX.md](docs/MSIX.md).
 - **Temperatura de zona ACPI** (v0.4): proveedor suplementario vía WMI `MSAcpi_ThermalZoneTemperature` (aproximada, requiere elevación).
@@ -124,6 +128,22 @@ asociación, no causalidad.
 Informa el estado de `AsusSAIO`, `AsusOptimization`, `AsIO3`/`AsIO2` y dispositivos ASUS/ATK vía WMI,
 sin iniciar, detener ni reconfigurar nada. Detalles en [docs/OEM-INTERFACES.md](docs/OEM-INTERFACES.md).
 
+## Diagnóstico FanSpeed (solo lectura)
+
+```powershell
+.\dist\FanForge.exe --fan-backends
+.\dist\FanForge.exe --fan-capabilities
+.\dist\FanForge.exe --fan-read
+.\dist\FanForge.exe --fan-recovery-status
+```
+
+`--fan-backends` enumera cada backend y sus capacidades; `--fan-capabilities` resume si existe un canal
+PWM **verificado**; `--fan-read` imprime una lectura por backend; `--fan-recovery-status` muestra el
+registro de recuperación guardado y el perfil ASUS actual. **Ninguno escribe PWM ni habilita control
+manual.** En el M3500QC ningún backend reporta PWM verificado, por lo que el motor permanece en
+`AvailableUnverified` y el control manual sigue bloqueado. Protocolo de validación física en
+[docs/FANSPEED-PHYSICAL-TESTS.md](docs/FANSPEED-PHYSICAL-TESTS.md).
+
 ## Prueba supervisada
 
 Antes de escribir PWM consulta [docs/HARDWARE-TEST.md](docs/HARDWARE-TEST.md). Registra RPM en AUTO, prueba 80% durante ~10 segundos y luego 100% durante ~10 segundos. Verifica la lectura REAL de RPM. Usa **VOLVER A BIOS** inmediatamente ante resultados incoherentes; detén la prueba ante ruido mecánico anormal, temperaturas de riesgo o ventilador detenido.
@@ -162,6 +182,11 @@ HealthyTable responde, también el PWM a BIOS). El watchdog es **best effort**, 
 | `FanForge.Core/ThermalAnalyzer.cs` | Parseo de CSV y estadísticas/correlación por perfil |
 | `FanForge.Core/ThermalReport.cs` | Informe HTML (SVG) y CSV de estadísticas |
 | `FanForge.Core/MsixPackaging.cs` | Validación del manifiesto MSIX (política) |
+| `FanForge.Core/FanSpeed.cs` | Contratos FanSpeed (estados, capacidades, `IFanSpeedBackend`) |
+| `FanForge.Core/FanSpeedEngine.cs` | Motor multibackend con canal serializado y verificación |
+| `FanForge.Core/AsusWmiCodec.cs` | Decodificación de valores WMI/ACPI con bit de validez |
+| `FanForge.Core/SimulatedFanSpeedBackend.cs` | Backend simulado (pruebas sin hardware) |
+| `FanForge.Win/FanSpeedBackends.cs` | Backends Win: ATKACPI, WMI, HealthyTable (gated), PawnIO (stub) |
 | `FanForge.Win/TelemetryRecorder.cs` | Escritura del CSV de telemetría |
 | `FanForge.Win/DriverDiagnostics.cs` | Estado de servicios/drivers ASUS vía WMI (solo lectura) |
 | `FanForge.Win/AcpiThermalZoneTelemetry.cs` | Temperatura de zona ACPI (WMI, aproximada) |
@@ -171,7 +196,7 @@ HealthyTable responde, también el PWM a BIOS). El watchdog es **best effort**, 
 | `FanForge.Win/FanToolConflictDetector.cs` | Enumera procesos y avisa de MyASUS/Armoury Crate/G-Helper activos |
 | `FanForge.Win/OemLibraryVerifier.cs` | Lee versión y firmante Authenticode de AsusWinIO64.dll |
 | `FanForge.Win/MainForm.cs` | Dashboard WinForms con reconocimiento de capacidades |
-| `FanForge.Tests/` | Pruebas de política y de sesión con backend falso |
+| `FanForge.Tests/` | Pruebas de política, sesión, motor FanSpeed y códec con backends falsos |
 | `scripts/` | Diagnóstico, compilación y restauración |
 | `docs/` | Plan y protocolo de pruebas |
 
@@ -182,6 +207,8 @@ Consulta [ROADMAP](docs/ROADMAP.md): primero validación física en el M3500QC r
 ## Documentación adicional
 
 - [docs/ROADMAP.md](docs/ROADMAP.md) — hoja de ruta.
+- [docs/FANSPEED-RESEARCH.md](docs/FANSPEED-RESEARCH.md) — interfaces y matriz de compatibilidad del motor FanSpeed.
+- [docs/FANSPEED-PHYSICAL-TESTS.md](docs/FANSPEED-PHYSICAL-TESTS.md) — protocolo de validación física presencial.
 - [docs/MSIX.md](docs/MSIX.md) — empaquetado MSIX y firma.
 - [docs/RECOVERY.md](docs/RECOVERY.md) — recuperación y auditoría de seguridad.
 - [docs/PWM-RESEARCH.md](docs/PWM-RESEARCH.md) — por qué el PWM manual está bloqueado en este modelo.

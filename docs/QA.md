@@ -1,4 +1,4 @@
-# QA — Resultados automatizados (v0.8)
+# QA — Resultados automatizados (v0.9)
 
 ## Entorno de ejecución
 - OS: Microsoft Windows 11 Home Single Language, 10.0.26300, x64.
@@ -16,7 +16,7 @@ Comando:
 dotnet run --project .\FanForge.Tests\FanForge.Tests.csproj -c Release
 ```
 
-Resultado: **223/223 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
+Resultado: **252/252 PASAN** (la accesibilidad de la UI no aporta pruebas unitarias; se valida visualmente). Cubren:
 - Guarda de modelo M3500QC (positivo, mayúsculas/negativo, null).
 - Conteo válido/inválido de ventiladores.
 - Conversión 70/80/100% a duty y rechazo de 8 valores fuera de rango.
@@ -37,6 +37,8 @@ Resultado: **223/223 PASAN** (la accesibilidad de la UI no aporta pruebas unitar
 - **Analizador térmico** (`ThermalAnalyzer`/`TelemetryCsvParser`/`ThermalReport`): parseo de CSV (ida y vuelta, detección de huecos temporales y filas inválidas, import de ProArt con alias de cabecera), estadísticas (min/max/media/p90/p95), correlación temperatura–RPM y desglose por perfil, y generación del informe HTML/CSV.
 - **Manifiesto MSIX** (`MsixManifest`): acepta un manifiesto válido y rechaza XML mal formado, vacío, arquitectura no x64, versión no de cuatro partes, entrada no *full trust* y ausencia de identidad; también valida el manifiesto real del repositorio.
 - **Recuperación ampliada**: ciclo completo aplicar → crash → recuperar, registro `Unchanged` cuando el firmware ya coincide (limpiando el registro), retención del registro si el registro es ilegible, rechazo de valores fuera de rango y de versiones desconocidas del códec.
+- **Códec WMI** (`AsusWmiCodec`): decodificación del bit de validez `0x10000` (casos `0x0001002D→4500`, `0x00010032→5000`, `0x00010024→3600`, `0x00010026→3800`), rechazo de centinelas (`0xFFFFFFFE`, `0xFFFFFFFF`) y de payloads fuera de rango (>120), y flag de validez ausente.
+- **Motor FanSpeed** (`FanSpeedEngine`, `SimulatedFanSpeedBackend`, `FakeSpeedBackend`): detección con backend verificado; aplicación confirmada vs. aceptada-sin-confirmar (nunca se reporta completa si no hay confirmación); promoción a `Verified` solo con aumento de RPM; rechazo de porcentaje fuera de rango; `Unsupported` cuando no hay PWM verificado; bloqueo de escritura ante lecturas incoherentes; degradación a `Unsupported` si la detección falla; restauración que limpia el estado manual; y pasada de seguridad sin control manual.
 
 Ninguna prueba toca hardware; los backends son mocks (`FakeBackend`, `FakeProfileChannel`, `FakeProfileStore`) y el reloj es determinista (`ManualTime`).
 
@@ -105,3 +107,11 @@ Pendientes: requieren consola elevada y presencia del operador. Ver `docs/HARDWA
 - **Recuperación**: ampliada con escenarios de ciclo completo; ver `docs/RECOVERY.md`.
 - **PWM**: documentado el bloqueo por firmware (`docs/PWM-RESEARCH.md`); sin cambios de drivers/EC.
 - Pruebas: **223/223**; Release 0 avisos / 0 errores.
+
+## v0.9 — Motor FanSpeed, telemetría WMI y centro de control
+- **Motor FanSpeed** (`FanSpeedEngine`): probado con backends simulados/falsos; distingue aceptado (`AppliedUnverified`) de confirmado (`Verified`) y **nunca presenta como completada** una operación no confirmada. Verificación promovida solo con aumento medido de RPM (>150).
+- **Códec WMI** (`AsusWmiCodec`): validado con los casos RAW verificados del M3500QC y centinelas inválidos.
+- **CLI de solo lectura** (`--fan-backends`, `--fan-capabilities`, `--fan-read`, `--fan-recovery-status`): ejecutado en el M3500QC; ningún backend reporta PWM `Verified`, el motor queda `AvailableUnverified` y el control manual permanece bloqueado. `--fan-read` confirmó RPM ATKACPI (CPU 5500 / GPU 3900) y todos los backends responden sin lanzar excepciones.
+- **Centro de control GUI**: pestaña **FanSpeed**; los controles de escritura quedan deshabilitados (ningún canal verificado). No se activó ningún control manual.
+- **Backends Win**: ATKACPI (RPM/perfiles), WMI (solo lectura, tolerante), HealthyTable (PWM *gated*, nunca auto-verificado) y PawnIO (stub deshabilitado). No se modificaron drivers ni el EC.
+- Pruebas: **252/252**; Release 0 avisos / 0 errores.

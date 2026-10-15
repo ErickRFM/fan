@@ -545,6 +545,91 @@ for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir != null &
 if (repoManifest != null)
     Check(MsixManifest.Validate(File.ReadAllText(repoManifest)).Count == 0, "repository appxmanifest validates");
 
+// ---- WMI fan codec (status-tagged values) ----
+Check(AsusWmiCodec.DecodeFanRpm(0x0001002Du) == 4500, "wmi 0x0001002D -> 4500");
+Check(AsusWmiCodec.DecodeFanRpm(0x00010032u) == 5000, "wmi 0x00010032 -> 5000");
+Check(AsusWmiCodec.DecodeFanRpm(0x00010024u) == 3600, "wmi 0x00010024 -> 3600");
+Check(AsusWmiCodec.DecodeFanRpm(0x00010026u) == 3800, "wmi 0x00010026 -> 3800");
+Check(AsusWmiCodec.DecodeFanRpm(0xFFFFFFFE) is null, "wmi sentinel infeasible invalid");
+Check(AsusWmiCodec.DecodeFanRpm(0xFFFFFFFF) is null, "wmi all-ones invalid");
+Check(AsusWmiCodec.DecodeFanRpm(0x0000002D) is null, "wmi missing valid flag invalid");
+Check(AsusWmiCodec.DecodeFanRpm(0x00010078) == 12000, "wmi max raw decodes");
+Check(AsusWmiCodec.DecodeFanRpm(0x00010079) is null, "wmi over max raw invalid");
+Check(AsusWmiCodec.TryDecodeValue(0x0001002D, out int decodedValue) && decodedValue == 45, "wmi decode value payload");
+Check(!AsusWmiCodec.TryDecodeValue(0x0000002D, out _), "wmi decode rejects flag-clear value");
+Check(AsusWmiCodec.TryDecodeValue(0xFFFFFFFE, out int sentinel) && sentinel > FanPolicy.MaxAcpiFanRaw, "wmi sentinel is caught by range guard");
+
+// ---- FanSpeed: simulated backend and engine lifecycle ----
+var simulated = new SimulatedFanSpeedBackend();
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { simulated }))
+{
+    var caps = await engine.DetectAsync();
+    Check(caps.Count == 1 && caps[0].PwmDirect == CapabilityLevel.Verified, "simulated backend detected verified");
+    Check(engine.State == FanSpeedState.Ready, "engine ready when verified pwm exists");
+
+    var reading = await engine.ReadAsync();
+    Check(reading.Quality == ReadingQuality.Ok && reading.CpuRpm == 2000, "simulated reading ok");
+
+    var applied = await engine.SetSpeedAsync(FanTarget.Both, 80);
+    Check(applied.Confirmed && applied.State == FanSpeedState.Verified, "simulated apply confirms");
+    Check(engine.Manual && engine.ManualTarget == FanTarget.Both && engine.ManualPercent == 80, "engine records manual state");
+
+    var restored = await engine.RestoreAutomaticAsync();
+    Check(restored.State == FanSpeedState.Restored && !engine.Manual, "restore clears manual state");
+
+    var outOfRange = await engine.SetSpeedAsync(FanTarget.Cpu, 50);
+    Check(outOfRange.State == FanSpeedState.Failed && !outOfRange.Accepted, "reject out-of-range percent");
+
+    var noManualConfirm = await engine.ConfirmAsync();
+    Check(noManualConfirm.State == FanSpeedState.Ready, "confirm without manual is a no-op");
+    Check(engine.Audit.Count > 0, "engine records audit trail");
+}
+
+var unconfirmedSimulated = new SimulatedFanSpeedBackend(autoConfirm: false);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { unconfirmedSimulated }))
+{
+    var accepted = await engine.SetSpeedAsync(FanTarget.Cpu, 80);
+    Check(accepted.Accepted && !accepted.Confirmed && accepted.State == FanSpeedState.AppliedUnverified,
+        "accepted but unconfirmed is not reported complete");
+    var confirmed = await engine.ConfirmAsync();
+    Check(confirmed.Confirmed && confirmed.State == FanSpeedState.Verified, "rpm response promotes to verified");
+}
+
+var unsupported = new SimulatedFanSpeedBackend(verifiedPwm: false);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { unsupported }))
+{
+    await engine.DetectAsync();
+    var result = await engine.SetSpeedAsync(FanTarget.Cpu, 90);
+    Check(result.State == FanSpeedState.Unsupported && !result.Accepted, "unsupported pwm never succeeds");
+    Check(engine.State == FanSpeedState.Unsupported, "engine reports unsupported");
+}
+
+var throwingRead = new FakeSpeedBackend("wmi", CapabilityLevel.Verified, throwOnRead: true);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { throwingRead }))
+{
+    var result = await engine.SetSpeedAsync(FanTarget.Cpu, 85);
+    Check(result.State == FanSpeedState.Failed && !result.Accepted, "incoherent reading blocks writes");
+}
+
+var rejecting = new FakeSpeedBackend("acpi", CapabilityLevel.Detected) { Accept = false };
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { rejecting }))
+{
+    var result = await engine.SetSpeedAsync(FanTarget.Cpu, 85);
+    Check(result.State == FanSpeedState.Unsupported, "detected-only backend is not writable");
+}
+
+var throwingDetect = new FakeSpeedBackend("boom", CapabilityLevel.Verified, throwOnDetect: true);
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { throwingDetect }))
+{
+    var caps = await engine.DetectAsync();
+    Check(caps.Count == 1 && caps[0].PwmDirect == CapabilityLevel.Unsupported, "detect failure degrades to unsupported");
+}
+
+using (var engine = new FanSpeedEngine(new IFanSpeedBackend[] { new SimulatedFanSpeedBackend() }))
+{
+    Check(await engine.EvaluateSafetyAsync() is null, "safety pass is a no-op without manual control");
+}
+
 Console.WriteLine("Passed: " + passed);
 
 // ---- Test doubles (simulated controller; never touches real hardware) ----
@@ -613,4 +698,50 @@ sealed class FakeProfileStore : IOriginalProfileStore
     public int? Load() => Value;
     public void Save(int wireMode) => Value = wireMode;
     public void Clear() => Value = null;
+}
+
+sealed class FakeSpeedBackend : IFanSpeedBackend
+{
+    private readonly CapabilityLevel _pwm;
+    private readonly bool _throwOnRead;
+    private readonly bool _throwOnDetect;
+
+    public FakeSpeedBackend(
+        string name,
+        CapabilityLevel pwm,
+        bool throwOnRead = false,
+        bool throwOnDetect = false)
+    {
+        Name = name;
+        _pwm = pwm;
+        _throwOnRead = throwOnRead;
+        _throwOnDetect = throwOnDetect;
+    }
+
+    public string Name { get; }
+    public bool Accept { get; init; } = true;
+    public int? CpuRpm { get; set; } = 4000;
+    public int? GpuRpm { get; set; } = 3000;
+
+    public Task<FanSpeedCapabilities> DetectAsync(CancellationToken cancellationToken)
+    {
+        if (_throwOnDetect) throw new InvalidOperationException("simulated detect failure");
+        return Task.FromResult(new FanSpeedCapabilities(
+            Name, _pwm, CapabilityLevel.Unsupported, false, true));
+    }
+
+    public Task<FanSpeedReading> ReadAsync(CancellationToken cancellationToken)
+    {
+        if (_throwOnRead) throw new InvalidOperationException("simulated read failure");
+        return Task.FromResult(new FanSpeedReading(
+            CpuRpm, GpuRpm, 50, 45, "Standard", Name, ReadingQuality.Ok, DateTimeOffset.UtcNow));
+    }
+
+    public Task<FanSpeedCommandResult> SetSpeedAsync(FanTarget target, int percent, CancellationToken cancellationToken) =>
+        Task.FromResult(Accept
+            ? new FanSpeedCommandResult(FanSpeedState.AppliedUnverified, "simulated accept", percent, 5000)
+            : new FanSpeedCommandResult(FanSpeedState.Unsupported, "simulated reject", percent));
+
+    public Task<FanSpeedCommandResult> RestoreAutomaticAsync(CancellationToken cancellationToken) =>
+        Task.FromResult(new FanSpeedCommandResult(FanSpeedState.Restored, "simulated restore"));
 }
