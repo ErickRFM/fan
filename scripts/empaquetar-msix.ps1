@@ -14,7 +14,7 @@
 #>
 param(
     [string]$Configuration = 'Release',
-    [ValidatePattern('^\d+\.\d+\.\d+\.\d+
+    [ValidatePattern('^\d+\.\d+\.\d+\.\d+$')][string]$Version = '0.8.0.0',
     [string]$OutputDir = (Join-Path $PSScriptRoot '..\dist\msix'),
     [switch]$SkipPublish,
     [string]$SourceDir,
