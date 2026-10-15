@@ -48,11 +48,72 @@ Mientras no exista un ejecutable firmado y aceptado, las pruebas permitidas se e
 firmar ni desactivar nada. Los comandos expuestos por la CLI (`--probe`, `--hardware-diagnose`,
 `--set-profile`, `--log-telemetry`, `--restore`) son los mismos que usa la GUI.
 
+## CI de firma confiable (GitHub Actions, preparado en esta rama)
+
+FanForge incorpora `.github/workflows/signed-release.yml`, un flujo **manual**
+(`Actions → FanForge signed Windows distribution → Run workflow`) que solo firma
+desde `main`. Por seguridad, usa el environment `fanforge-signing` (se recomienda
+exigir aprobaciones), acceso GitHub `id-token: write` para federación OIDC, y
+**nunca** se ejecuta sobre Pull Requests. Solo publica los artefactos si pasan
+las pruebas, la firma y la verificación.
+
+### Requisitos que debes configurar por tu cuenta
+
+1. Contratar o activar Microsoft **Artifact Signing** con un perfil de certificado de
+   firma de código de **confianza pública**, sujeto a disponibilidad y requisitos
+   de identidad por país y tipo de cuenta. La cuenta del usuario debe ser elegible;
+   no se puede crear aquí una identidad ficticia.
+2. Crear en Microsoft Entra una app con **Federated Credential** para el repositorio
+   `ErickRFM/fan`, con subject
+   `repo:ErickRFM/fan:environment:fanforge-signing`, audience
+   `api://AzureADTokenExchange`; asignarle el rol
+   **Artifact Signing Certificate Profile Signer** en el perfil correspondiente.
+3. En GitHub, crear Environment `fanforge-signing`, con aprobación requerida
+   si tu plan permite esa protección, y acceso limitado a `main`.
+   Añadir sus **secrets**:
+
+   - `AZURE_CLIENT_ID` — aplicación Entra de la federación
+   - `AZURE_TENANT_ID`
+   - `AZURE_SUBSCRIPTION_ID`
+   - `AZURE_SIGNING_ENDPOINT` — URL regional (ej. `https://eus.codesigning.azure.net/`)
+   - `AZURE_SIGNING_ACCOUNT` — nombre de la cuenta
+   - `AZURE_CERT_PROFILE` — nombre del perfil
+
+   Se usan para autenticación OIDC, **sin client secret, PFX ni claves privadas**.
+4. Después del merge, abrir Actions, elegir `FanForge signed Windows distribution`,
+   seleccionar rama `main`, introducir versión de **cuatro cifras**
+   (por ejemplo `0.9.1.0`) y ejecutar. La firma **no funciona** sin completar
+   los requisitos anteriores.
+
+El pipeline prueba FanForge, publica un `FanForge.exe` autónomo, firma
+con `azure/artifact-signing-action@v2`, verifica la firma localmente,
+genera el MSIX con su **Publisher real extraído del certificado**, firma
+el MSIX, verifica ambas firmas con Windows SDK SignTool y publica
+`FanForge-signed-win-x64.zip`, `FanForge.msix` y `SHA256SUMS.txt`.
+Un error cancela la publicación: **no hay fallback a distribución sin firma**.
+Los artefactos quedan disponibles en la ejecución de GitHub Actions,
+no se publican automáticamente como GitHub Release.
+
+Validación del EXE descargado en PowerShell:
+
+```powershell
+Get-AuthenticodeSignature .\FanForge.exe | Format-List Status,StatusMessage,SignerCertificate
+.\scripts\verificar-firma.ps1 -Path .\dist\signed\FanForge.exe
+```
+
+La verificación del usuario sigue siendo imprescindible: que la firma
+sea válida **no garantiza** compatibilidad con todas las políticas corporativas
+WDAC, confianza de SmartScreen inmediata ni funcionalidad PWM del M3500QC.
+No se desactivan Smart App Control, WDAC ni Secure Boot.
+
+Documentación del proveedor:
+https://github.com/Azure/artifact-signing-action
+https://learn.microsoft.com/en-us/windows/apps/develop/smart-app-control/code-signing-for-smart-app-control
+
 ## Plan recomendado
 
 1. **Ahora:** seguir con el host `dotnet.exe` para las pruebas autorizadas.
-2. **Cuando haya presupuesto:** alta en **Azure Artifact Signing** y firmar el `.exe` en CI
-   (GitHub Actions). Mantener una identidad de firma consistente para acumular reputación.
+2. **Cuando esté disponible el servicio y haya identidad/certificado:** configurar los secrets OIDC y ejecutar manualmente el workflow de firma indicado arriba. Mantener una identidad de firma consistente para acumular reputación.
 3. **Alternativa de distribución:** publicar como **MSIX** (Store o distribución firmada) para no
    depender de un certificado propio.
 4. **Verificación:** probar la firma contra SAC en modo auditoría antes de distribuir, cubriendo todos
