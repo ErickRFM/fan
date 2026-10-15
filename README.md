@@ -45,6 +45,9 @@ una cuenta Artifact Signing compatible y configurar el environment
 `fanforge-signing` con credenciales federadas. Después, el workflow firma el
 EXE y MSIX, verifica ambas firmas y entrega artefactos en GitHub Actions.
 No se permite subir paquetes sin firmar bajo un nombre de distribución confiable.
+Para identidades no elegibles para Artifact Signing (por ejemplo, desarrolladores
+individuales en México), también existe firma local con certificado OV de CA
+mediante `scripts/firmar-distribucion-local.ps1`.
 Pasos completos: [Firma en Windows](docs/WINDOWS-SIGNING.md) y
 [Empaquetado MSIX](docs/MSIX.md).
 
