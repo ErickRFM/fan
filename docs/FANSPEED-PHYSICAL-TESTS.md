@@ -2,7 +2,11 @@
 
 Este documento describe cómo se validaría **físicamente** un canal de control de ventiladores antes de
 habilitarlo en FanForge. Hasta que estos pasos se completen con resultados concluyentes y autorización
-presencial, el motor reporta el canal como `Unsupported`/`Unverified` y **no permite escrituras**.
+presencial, el motor reporta el canal como `Unsupported`/`DetectedUnverified` y **no permite escrituras**.
+
+> **v1.1:** el protocolo completo, la captura de evidencia de solo lectura
+> (`scripts/recolectar-evidencia-fan.ps1`), el procedimiento «fan testing» de MyASUS y la matriz de
+> decisión están en `docs/DIRECT-FAN-CONTROL-VALIDATION.md`. Este documento se mantiene como resumen.
 
 > **Requisitos previos obligatorios**
 > - Presencia física de la persona propietaria del equipo durante toda la prueba.
@@ -19,7 +23,7 @@ presencial, el motor reporta el canal como `Unsupported`/`Unverified` y **no per
 | Lectura ATKACPI | `--fan-read` | CPU/GPU RPM válidos (p. ej. CPU 5500, GPU 3900) |
 | Ruta OEM HealthyTable | `--probe` / GUI | `HealthyTable_FanCounts() = -1` (no soportada) |
 | Endpoints de curva ATKACPI | `--hardware-diagnose` | `Devs*FanCurve` → `-65536` (rechazado) |
-| Estado del motor | `--fan-capabilities` | `AvailableUnverified` |
+| Estado del motor | `--fan-capabilities` | `DetectedUnverified` |
 
 **Conclusión:** el firmware de este modelo/BIOS no expone un canal de PWM fijo ni curvas. La validación
 física solo tiene sentido si, en el futuro, un backend reportase PWM `Detected`/`Unverified` o si se

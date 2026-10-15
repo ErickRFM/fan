@@ -70,6 +70,15 @@ Nunca declarar compatibilidad real sin mediciones en el equipo físico.
 - [ ] Medición sostenida RPM-vs-temperatura por modo comparando con ProArt Creator Hub.
 - [ ] Empaquetado firmado (Azure Artifact Signing / MSIX / Store).
 
+## v1.1 — Evidencia de solo lectura y protocolo de validación física
+- [x] Evidencia (`FanEvidence`): hoja CSV por backend + manifiesto JSON y veredicto (`Blocked`/`InsufficientEvidence`/`RpmResponded`/`Verified`); un canal solo llega a `Verified` con RPM confirmada en ≥2 lecturas **y** restauración (normal + watchdog + reanudación) demostrada.
+- [x] CLI de solo lectura `--fan-evidence <dir> [--seconds N]`.
+- [x] Script de solo lectura `scripts/recolectar-evidencia-fan.ps1` (ficha, drivers, servicios, procesos, temperaturas WMI, evidencia CSV/JSON).
+- [x] Protocolo `docs/DIRECT-FAN-CONTROL-VALIDATION.md`: precondiciones, saneo del estado previo, MyASUS supervisado, prueba de causalidad, criterios de aborto y matriz de decisión.
+- [x] Corrección de codificación (UTF-8) en `FanSpeedBackends.cs` (regresión de v1.0).
+- [x] Pruebas 291 (antes 268); Release 0 avisos / 0 errores.
+- [ ] Prueba física supervisada (persona presente): requiere que el firmware exponga un canal; hoy `Blocked`.
+
 ## v1.0 — Control directo de ventiladores por ventilador (F0–F13)
 - [x] Capacidades por ventilador (`FanChannelCapabilities`) y estados ampliados (`Unsupported → DetectedUnverified → Compatible → Ready → Applying → AcceptedUnverified → Verified → Restoring → Restored → Failed`).
 - [x] Control independiente CPU/GPU; `FanTarget.Both` solo si **cada** ventilador tiene PWM verificado; solicitudes 70–100 % (incluido *ambos 100 %*).

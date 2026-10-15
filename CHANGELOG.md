@@ -5,6 +5,15 @@
 - Alternativa local con certificado OV público y clave protegida para regiones no habilitadas para Artifact Signing Public Trust; verifica ZIP/MSIX antes de distribución.
 - **Sin firma real en esta entrega:** requiere credenciales Microsoft Entra, perfil de certificado de confianza y ejecución manual del usuario; no cambia controladores ni PWM.
 
+## v1.1.0 — Evidencia de solo lectura y protocolo de validación física
+- **Evidencia (Core):** `FanEvidence` genera una hoja CSV determinista por backend (`pwm_cpu`/`pwm_gpu`) y un manifiesto JSON, y convierte los criterios de aceptación en un veredicto explícito (`Blocked` / `InsufficientEvidence` / `RpmResponded` / `Verified`). Un canal **solo** llega a `Verified` con respuesta de RPM confirmada en **≥ 2** lecturas **y** restauración (normal + watchdog + reanudación) demostrada.
+- **CLI (solo lectura):** nuevo `--fan-evidence <dir> [--seconds N]` que escribe el CSV+JSON y el veredicto. Nunca entra en modo de prueba ni escribe PWM.
+- **Script (solo lectura):** `scripts/recolectar-evidencia-fan.ps1` reúne un paquete con marca de tiempo: ficha del equipo, drivers/servicios ASUS, procesos de control, temperaturas WMI, salidas de todos los comandos de solo lectura y la evidencia CSV/JSON. Seguro en cualquier momento; requiere elevación solo para las lecturas reales.
+- **Protocolo:** `docs/DIRECT-FAN-CONTROL-VALIDATION.md` (precondiciones, saneo del estado previo, captura de evidencia, «fan testing» de MyASUS supervisado, prueba de causalidad de RPM, seguridad y criterios de aborto, matriz de decisión, artefactos y límites). `docs/FANSPEED-PHYSICAL-TESTS.md` apunta al protocolo completo.
+- **Corrección:** se restaura la codificación UTF-8 de `FanForge.Win/FanSpeedBackends.cs` (mojibake y BOM introducidos en v1.0).
+- En M3500QC el veredicto sigue siendo **`Blocked`** (`HealthyTable_FanCounts()=-1`, curvas ATKACPI `-65536`): no se declara PWM compatible sin respuesta física verificable y restauración segura.
+- **Pruebas:** 291 (antes 268). Release 0 avisos / 0 errores.
+
 ## v1.0.0 — Control directo de ventiladores por ventilador (F0–F13)
 - **Modelo por ventilador:** `FanChannelCapabilities` (CPU/GPU independientes) y estados ampliados `Unsupported → DetectedUnverified → Compatible → Ready → Applying → AcceptedUnverified → Verified → Restoring → Restored → Failed` (`AvailableUnverified`→`DetectedUnverified`, `AppliedUnverified`→`AcceptedUnverified`).
 - **Control independiente CPU/GPU:** `SetSpeedAsync` por ventilador; `FanTarget.Both` solo se acepta si **cada** ventilador tiene PWM verificado. Solicitudes 70–100 %, incluido *ambos 100 %*.
