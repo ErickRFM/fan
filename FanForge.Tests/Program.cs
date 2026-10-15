@@ -239,6 +239,95 @@ Check(disposeBackend.Disposed && disposeBackend.RestoreCalls >= 1, "dispose rest
 disposeSession.Dispose();
 Check(disposeBackend.RestoreCalls == 1, "dispose is idempotent");
 
+// ---- Original profile codec ----
+string encoded = OriginalProfileCodec.Encode(2, DateTimeOffset.UnixEpoch);
+Check(OriginalProfileCodec.TryDecode(encoded, out int decoded) && decoded == 2, "codec round trip");
+Check(OriginalProfileCodec.TryDecode(" 1|1|10 ", out int spaced) && spaced == 1, "codec trims whitespace");
+Check(!OriginalProfileCodec.TryDecode(null, out _), "codec rejects null");
+Check(!OriginalProfileCodec.TryDecode("", out _), "codec rejects empty");
+Check(!OriginalProfileCodec.TryDecode("1|3|0", out _), "codec rejects out-of-range mode");
+Check(!OriginalProfileCodec.TryDecode("2|1|0", out _), "codec rejects wrong version");
+Check(!OriginalProfileCodec.TryDecode("1|1", out _), "codec rejects truncated record");
+Throws<ArgumentOutOfRangeException>(() => OriginalProfileCodec.Encode(3, DateTimeOffset.UnixEpoch),
+    "encode rejects bad mode");
+
+// ---- Profile guard: capture original and restore the original (never assume Standard) ----
+var channel = new FakeProfileChannel(wire: 2);
+var store = new FakeProfileStore();
+var guard = new ProfileGuard(channel, store);
+Check(guard.Apply(FanProfile.Standard).Kind == ProfileOutcomeKind.Applied, "guard applies standard");
+Check(channel.Wire == 0, "guard wrote standard wire 0");
+Check(guard.OriginalWireMode == 2, "guard captured original wire 2");
+Check(store.Value == 2, "guard persisted original wire 2");
+Check(guard.Modified && channel.Writes.Count == 1, "guard marks modified after one write");
+Check(guard.RestoreOriginal() is { Kind: ProfileOutcomeKind.Restored, Success: true } && channel.Wire == 2,
+    "restore writes original 2, not standard");
+Check(!guard.Modified && store.Value is null, "restore clears modified flag and persisted record");
+
+// ---- Profile guard: no write when the target is already active ----
+var alreadyChannel = new FakeProfileChannel(0);
+var alreadyGuard = new ProfileGuard(alreadyChannel);
+Check(alreadyGuard.Apply(FanProfile.Standard).Kind == ProfileOutcomeKind.Unchanged, "unchanged apply reported");
+Check(alreadyChannel.Writes.Count == 0 && !alreadyGuard.Modified, "unchanged apply never writes");
+Check(!alreadyGuard.HasCaptured, "unchanged apply captures nothing to restore");
+
+// ---- Profile guard: unsupported profiles are refused before any I/O ----
+var unsupportedChannel = new FakeProfileChannel(0);
+Check(new ProfileGuard(unsupportedChannel).Apply(FanProfile.Max).Kind == ProfileOutcomeKind.ProfileUnsupported,
+    "guard refuses Max");
+Check(new ProfileGuard(unsupportedChannel).Apply(FanProfile.Manual).Kind == ProfileOutcomeKind.ProfileUnsupported,
+    "guard refuses Manual");
+Check(unsupportedChannel.Writes.Count == 0, "refused profiles never write");
+
+// ---- Profile guard: a read error blocks modification (protects the unknown original) ----
+var readFailChannel = new FakeProfileChannel(0) { ReadReturnsNull = true };
+var readFailGuard = new ProfileGuard(readFailChannel, new FakeProfileStore());
+Check(readFailGuard.Apply(FanProfile.Performance).Kind == ProfileOutcomeKind.OriginalUnavailable,
+    "read failure blocks modification");
+Check(readFailChannel.Writes.Count == 0 && !readFailGuard.Modified, "no write when original is unreadable");
+
+// ---- Profile guard: a rejected write keeps the original and is not persisted ----
+var rejectChannel = new FakeProfileChannel(0) { AcceptWrites = false };
+var rejectStore = new FakeProfileStore();
+var rejectGuard = new ProfileGuard(rejectChannel, rejectStore);
+Check(rejectGuard.Apply(FanProfile.Performance).Kind == ProfileOutcomeKind.WriteRejected, "write rejection reported");
+Check(!rejectGuard.Modified && rejectStore.Value is null && rejectChannel.Wire == 0,
+    "rejected write does not change or persist state");
+
+// ---- Profile guard: a failed restore keeps the persisted original for a later retry ----
+var restoreFailChannel = new FakeProfileChannel(2);
+var restoreFailStore = new FakeProfileStore();
+var restoreFailGuard = new ProfileGuard(restoreFailChannel, restoreFailStore);
+_ = restoreFailGuard.Apply(FanProfile.Standard);
+restoreFailChannel.AcceptWrites = false;
+Check(restoreFailGuard.RestoreOriginal().Kind == ProfileOutcomeKind.WriteRejected, "failed restore reported");
+Check(restoreFailGuard.Modified && restoreFailStore.Value == 2, "failed restore keeps persisted original");
+
+// ---- Profile guard: restore without a capture writes nothing ----
+var uncapturedChannel = new FakeProfileChannel(0);
+Check(new ProfileGuard(uncapturedChannel).RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured,
+    "restore without capture refused");
+Check(uncapturedChannel.Writes.Count == 0, "restore without capture never writes");
+
+// ---- Profile guard: unexpected close is repaired from the persisted record ----
+var crashStore = new FakeProfileStore { Value = 2 };
+var crashChannel = new FakeProfileChannel(0); // firmware stayed on Standard after the crash
+var recovery = new ProfileGuard(crashChannel, crashStore, recoverPersisted: true);
+Check(recovery.OriginalWireMode == 2, "recovery loads persisted original");
+Check(recovery.RestoreOriginal() is { Kind: ProfileOutcomeKind.Restored } && crashChannel.Wire == 2,
+    "recovery restores original from disk");
+Check(crashStore.Value is null, "recovery clears persisted record after success");
+Check(new ProfileGuard(new FakeProfileChannel(1), new FakeProfileStore(), recoverPersisted: true)
+        .RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured,
+    "recovery without a record is a no-op");
+
+// ---- Profile guard: interactive sessions must ignore a stale record from a past run ----
+var staleStore = new FakeProfileStore { Value = 1 };
+var staleChannel = new FakeProfileChannel(2); // user changed to Performance elsewhere
+var interactive = new ProfileGuard(staleChannel, staleStore);
+Check(interactive.OriginalWireMode is null, "interactive session ignores stale record");
+Check(interactive.RestoreOriginal().Kind == ProfileOutcomeKind.NotCaptured, "no stale restore");
+
 Console.WriteLine("Passed: " + passed);
 
 // ---- Test doubles (simulated controller; never touches real hardware) ----
@@ -278,4 +367,33 @@ sealed class ManualTime : TimeProvider
     public void Advance(TimeSpan delta) => _now += delta;
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         => throw new NotSupportedException();
+}
+
+sealed class FakeProfileChannel : IProfileChannel
+{
+    private int _wire;
+    public FakeProfileChannel(int wire) => _wire = wire;
+
+    public bool ReadReturnsNull { get; set; }
+    public bool AcceptWrites { get; set; } = true;
+    public List<int> Writes { get; } = new();
+    public int Wire => _wire;
+
+    public int? ReadWireMode() => ReadReturnsNull ? null : _wire;
+
+    public bool WriteWireMode(int wireMode)
+    {
+        if (!AcceptWrites) return false;
+        Writes.Add(wireMode);
+        _wire = wireMode;
+        return true;
+    }
+}
+
+sealed class FakeProfileStore : IOriginalProfileStore
+{
+    public int? Value { get; set; }
+    public int? Load() => Value;
+    public void Save(int wireMode) => Value = wireMode;
+    public void Clear() => Value = null;
 }

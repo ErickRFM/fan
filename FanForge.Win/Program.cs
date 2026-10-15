@@ -153,23 +153,37 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// Best-effort repair: returns manual PWM to BIOS (may be unavailable) and restores the ASUS
+    /// profile captured before FanForge changed it (recovered from the persisted record if needed).
+    /// </summary>
     private static int RestoreNow()
     {
         AttachConsole();
         Report("FanForge --restore");
+        int failures = 0;
         try
         {
             using var hardware = new AsusHardware();
             hardware.Restore();
-            Report("Restauración solicitada: modo automático ASUS.");
-            return 0;
+            Report("PWM manual devuelto a BIOS (si estaba activo).");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("No se pudo restaurar: " + ex.Message);
-            Report("ERROR: " + ex.Message);
-            return 2;
+            Report("PWM: no restaurado (normal si HealthyTable no está disponible): " + ex.Message);
         }
+        try
+        {
+            using var control = AsusAcpiControlBackend.ForRecovery();
+            var result = control.RestoreAutomaticAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Report("Perfil ASUS: " + (result.Success ? "OK: " : "AVISO: ") + result.Message);
+        }
+        catch (Exception ex)
+        {
+            failures++;
+            Report("Perfil ASUS: ERROR " + ex.GetType().Name + ": " + ex.Message);
+        }
+        return failures == 0 ? 0 : 2;
     }
 
     /// <summary>Writes to console (when attached) and to a persistent CLI log for evidence.</summary>

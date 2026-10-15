@@ -30,22 +30,37 @@ internal static class Watchdog
             catch (System.ComponentModel.Win32Exception) { break; }
             Thread.Sleep(1300);
         }
+        bool failed = false;
+        // 1) Return manual PWM to BIOS (best effort; HealthyTable may be unavailable).
         try
         {
             using var hardware = new AsusHardware();
             hardware.Restore();
-            return 0;
         }
-        catch (Exception ex)
+        catch (Exception ex) { Log("PWM", ex); } // HealthyTable being unavailable is expected here.
+        // 2) Restore the ASUS profile captured before FanForge changed it, from the persisted record.
+        try
         {
-            try
-            {
-                string path = Path.Combine(Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData), "FanForge-watchdog.log");
-                File.AppendAllText(path, DateTimeOffset.Now.ToString("u") + " " + ex + Environment.NewLine);
-            }
-            catch { }
-            return 2;
+            using var control = AsusAcpiControlBackend.ForRecovery();
+            var result = control.RestoreAutomaticAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Log("Perfil", null, result.Message);
         }
+        catch (Exception ex) { failed = true; Log("Perfil", ex); }
+        return failed ? 2 : 0;
+    }
+
+    private static bool Log(string scope, Exception? ex, string? note = null)
+    {
+        try
+        {
+            string path = Path.Combine(Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData), "FanForge-watchdog.log");
+            string line = DateTimeOffset.Now.ToString("u") + " " + scope +
+                (note is null ? "" : ": " + note) +
+                (ex is null ? "" : ": " + ex) + Environment.NewLine;
+            File.AppendAllText(path, line);
+        }
+        catch { }
+        return ex is null;
     }
 }

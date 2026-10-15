@@ -159,7 +159,7 @@ internal sealed class MainForm : Form
         _tooltips.SetToolTip(_hundred, "PWM al 100% no disponible: HealthyTable / AsusSAIO no responde.");
         _tooltips.SetToolTip(_eighty, "PWM manual solo cuando HealthyTable detecte ventiladores válidos.");
         _tooltips.SetToolTip(_apply, "Este BIOS no expone curvas o PWM directo mediante ATKACPI.");
-        _tooltips.SetToolTip(_automatic, "Con PWM: devolver control a BIOS. Con perfiles: volver a Estándar.");
+        _tooltips.SetToolTip(_automatic, "Con PWM: devolver control a BIOS. Con perfiles: volver al perfil original capturado antes del primer cambio.");
 
         Controls.Add(center);
         Controls.Add(footer);
@@ -495,7 +495,33 @@ internal sealed class MainForm : Form
             Restore();
             return;
         }
-        if (_profileSupported) await ApplyProfile(FanProfile.Standard);
+        if (_profileSupported) await RestoreOriginalProfileAsync();
+    }
+
+    /// <summary>Returns the ASUS profile to the value captured before FanForge changed it.</summary>
+    private async Task RestoreOriginalProfileAsync()
+    {
+        if (_acpiControl == null || _profileBusy) return;
+        _profileBusy = true;
+        ToggleProfiles(true);
+        _status.Text = "Restaurando perfil ASUS original…";
+        try
+        {
+            var result = await Task.Run(() => _acpiControl.RestoreAutomaticAsync(CancellationToken.None));
+            Log((result.Success ? "Perfil original restaurado: " : "Perfil original NO restaurado: ") + result.Message);
+            _mode.Text = result.Success ? "Modo: ASUS (perfil original)" : "Modo: (sin cambio)";
+            _status.Text = result.Success ? "Perfil ASUS original restaurado" : "Perfil original no confirmado";
+        }
+        catch (Exception ex)
+        {
+            Log("Fallo al restaurar el perfil original: " + ex.Message);
+            _status.Text = "Error al restaurar perfil";
+        }
+        finally
+        {
+            _profileBusy = false;
+            ToggleProfiles(true);
+        }
     }
 
     private void Restore()
@@ -641,6 +667,7 @@ internal sealed class MainForm : Form
     private void AdjustWatchdogAfterResume()
     {
         Restore();
+        RestoreOriginalProfileBlocking();
         if (_watchdog != null && _watchdog.HasExited)
         {
             _watchdog.Dispose();
@@ -649,11 +676,27 @@ internal sealed class MainForm : Form
         }
     }
 
+    /// <summary>Best-effort restore of the captured profile when no UI await is possible (close/suspend).</summary>
+    private void RestoreOriginalProfileBlocking()
+    {
+        if (_acpiControl is not { ProfileModified: true }) return;
+        try
+        {
+            var result = _acpiControl.RestoreAutomaticAsync(CancellationToken.None).GetAwaiter().GetResult();
+            Log("Perfil ASUS original al devolver el control: " + result.Message);
+        }
+        catch (Exception ex)
+        {
+            Log("No se pudo restaurar el perfil original: " + ex.Message);
+        }
+    }
+
     private void CloseHardware()
     {
         _timer.Stop();
         SystemEvents.PowerModeChanged -= OnPower;
         try { _session?.Restore(); } catch (Exception ex) { Log("Fallo al restaurar al cerrar: " + ex.Message); }
+        RestoreOriginalProfileBlocking();
         _closing = true;
         try { _session?.Dispose(); } catch { }
         _acpiControl?.Dispose();
